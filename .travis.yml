@@ -15,10 +15,9 @@ script:
   - mix compile
   - mix fformat --check-formatted
   - mix test
-  - mix dialyzer --halt-exit-status
   - mix coveralls.travis --pro
+  - mix dialyzer --halt-exit-status
 cache:
   directories:
   - _build
   - deps
-  - priv/plts
