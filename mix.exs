@@ -62,6 +62,9 @@ defmodule Pravda.MixProject do
       {:excoveralls, "~> 0.10", only: [:dev, :test]},
       {:credo, "~> 1.1.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.21", only: :dev, runtime: false},
+      {:jason, "~> 1.1"},
+      {:plug, ">= 1.6.0"},
+      {:ex_json_schema, "~> 0.7"},
     ]
   end
 end
