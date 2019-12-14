@@ -1,4 +1,11 @@
 <p align="center">
-[![Docs](https://img.shields.io/badge/docs-here-green)](https://hexdocs.pm/pravda/) [![Build Status](https://travis-ci.com/mogorman/pravda.svg?branch=master)](https://travis-ci.com/mogorman/pravda) [![Coverage Status](https://coveralls.io/repos/github/mogorman/pravda/badge.svg?branch=master)](https://coveralls.io/github/mogorman/pravda?branch=master) [![Hex.pm](http://img.shields.io/hexpm/v/pravda.svg)](https://hex.pm/packages/pravda) [![Hex.pm](http://img.shields.io/hexpm/l/pravda.svg)](COPYING.txt) [![Hex.pm](https://img.shields.io/hexpm/dt/pravda)](README.md)
+<a href="https://hexdocs.pm/pravda/"><img src="https://img.shields.io/badge/docs-here-green" alt="Docs"></a>
+<a href="https://travis-ci.com/mogorman/pravda"><img src="https://travis-ci.com/mogorman/pravda.svg?branch=master" alt="Build"></a>
+
+<a href="https://coveralls.io/github/mogorman/pravda?branch=master"><img src="https://coveralls.io/repos/github/mogorman/pravda/badge.svg?branch=master" alt="Coverage"></a>
+
+<a href="https://hex.pm/packages/pravda)"><img src="http://img.shields.io/hexpm/v/pravda.svg" alt="Package"></a>
+<a href="COPYING.txt"><img src="http://img.shields.io/hexpm/l/pravda.svg" alt="License"></a>
+<img src="https://img.shields.io/hexpm/dt/pravda" alt="Downloads">
 </p>
 ![Pravda logo](/pravda_logo.png)
