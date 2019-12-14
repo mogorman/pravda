@@ -9,9 +9,11 @@ install:
   - mix local.rebar --force
   - mix local.hex --force
   - mix deps.get
+before_script:
+  - travis_wait mix dialyzer --plt
 script:
   - mix deps.compile
-  - mix compile
+  - mix do clean, compile --force --warning-as-errors
   - mix fformat --check-formatted
   - mix credo --strict
   - mix test
