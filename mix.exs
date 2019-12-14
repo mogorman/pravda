@@ -16,6 +16,7 @@ defmodule Pravda.MixProject do
         "coveralls.html": :test,
       ],
       dialyzer: [
+        plt_add_deps: :transitive,
         plt_add_apps: [:ex_unit, :mix],
       ],
 
