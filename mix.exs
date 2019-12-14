@@ -22,6 +22,16 @@ defmodule Pravda.MixProject do
         plt_add_deps: :transitive,
         plt_add_apps: [:ex_unit, :mix],
       ],
+      # Docs
+      name: "Pravda",
+      source_url: "https://github.com/mogorman/pravda",
+      homepage_url: "https://github.com/mogorman/pravda",
+      docs: [
+        # The main page in the docs
+        main: "Pravda",
+        logo: "pravda.png",
+        extras: ["README.md"],
+      ],
     ]
   end
 
@@ -51,6 +61,7 @@ defmodule Pravda.MixProject do
       {:dialyxir, "~> 1.0.0-rc.7", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.10", only: [:dev, :test]},
       {:credo, "~> 1.1.0", runtime: false},
+      {:ex_doc, "~> 0.21", only: :dev, runtime: false},
     ]
   end
 end
