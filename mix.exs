@@ -8,6 +8,9 @@ defmodule Pravda.MixProject do
       elixir: "~> 1.9",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      description: description(),
+      package: package(),
+      source_url: "https://github.com/mogorman/pravda",
       test_coverage: [tool: ExCoveralls],
       preferred_cli_env: [
         coveralls: :test,
@@ -26,6 +29,18 @@ defmodule Pravda.MixProject do
   def application do
     [
       extra_applications: [:logger],
+    ]
+  end
+
+  defp description() do
+    "OpenApi3 phoenix plug based validation and stand alone specs validator."
+  end
+
+  defp package() do
+    [
+      maintainers: ["Matthew O'Gorman"],
+      links: %{"GitHub" => "https://github.com/mogorman/pravda"},
+      licenses: ["MIT"],
     ]
   end
 
