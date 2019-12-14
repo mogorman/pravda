@@ -18,7 +18,7 @@ script:
   - mix credo --strict
   - mix test
   - mix coveralls.travis --pro
-  - mix dialyzer --halt-exit-status
+  - mix dialyzer
 cache:
   directories:
   - _build
