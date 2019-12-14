@@ -4,7 +4,7 @@ defmodule Pravda.MixProject do
   def project do
     [
       app: :pravda,
-      version: "0.1.0",
+      version: "0.1.1",
       elixir: "~> 1.9",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -60,7 +60,7 @@ defmodule Pravda.MixProject do
       {:freedom_formatter, "~> 1.0", only: [:dev, :test]},
       {:dialyxir, "~> 1.0.0-rc.7", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.10", only: [:dev, :test]},
-      {:credo, "~> 1.1.0", runtime: false},
+      {:credo, "~> 1.1.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.21", only: :dev, runtime: false},
     ]
   end
