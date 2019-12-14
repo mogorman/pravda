@@ -33,9 +33,9 @@ defmodule Pravda.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:freedom_formatter, "~> 1.0", only: :dev},
-      {:dialyxir, "~> 1.0.0-rc.7", only: [:dev], runtime: false},
-      {:excoveralls, "~> 0.10", only: :test},
+      {:freedom_formatter, "~> 1.0", only: [:dev, :test]},
+      {:dialyxir, "~> 1.0.0-rc.7", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.10", only: [:dev, :test]},
       {:credo, "~> 1.1.0", runtime: false}, 
     ]
   end
