@@ -10,11 +10,12 @@ install:
 - mix local.hex --force
 - mix deps.get
 script:
+  - mix deps.compile
   - mix compile
   - mix fformat --check-formatted
   - mix credo --strict
   - mix test
-  - mix coveralls.travis
+  - mix coveralls.travis --pro
   - mix dialyzer --halt-exit-status
 cache:
   directories:
