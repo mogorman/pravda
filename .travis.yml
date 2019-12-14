@@ -5,4 +5,20 @@ env:
   MIX_ENV: test
 otp_release:
   - '21.3'
-
+install:
+- mix local.rebar --force
+- mix local.hex --force
+- mix deps.get
+before_script:
+  - travis_wait mix dialyzer --plt
+script:
+  - mix compile
+  - mix fformat --check-formatted
+  - mix test
+  - mix dialyzer --halt-exit-status
+  - mix coveralls.travis --pro
+cache:
+  directories:
+  - _build
+  - deps
+  - priv/plts
