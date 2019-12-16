@@ -6,7 +6,7 @@ defmodule Pravda.RemoteResolver do
   @doc ~S"""
   resolve json schema.
   """
-  @spec resolve(String.t()) :: Map.t()
+  @spec resolve(String.t()) :: map()
   def resolve(url) do
     {:ok, result} = Mojito.get(url)
     result.body |> Jason.decode!()
