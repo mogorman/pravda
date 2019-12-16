@@ -2,7 +2,7 @@ defmodule PravdaTest do
   use ExUnit.Case
   doctest Pravda
 
-  test "greets the world" do
-    assert Pravda.hello() == :world
+  test "version returns a string" do
+    assert is_binary(Pravda.version())
   end
 end

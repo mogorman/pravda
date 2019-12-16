@@ -43,12 +43,12 @@ defmodule Pravda.MixProject do
   end
 
   defp description() do
-    "OpenApi3 phoenix plug based validation and stand alone specs validator."
+    "OpenAPI 3 phoenix plug based validation and stand alone specs validator."
   end
 
   defp package() do
     [
-      maintainers: ["Matthew O'Gorman"],
+      maintainers: ["Matthew O'Gorman mog@rldn.net"],
       links: %{"GitHub" => "https://github.com/mogorman/pravda"},
       licenses: ["MIT"],
     ]
@@ -62,9 +62,11 @@ defmodule Pravda.MixProject do
       {:excoveralls, "~> 0.10", only: [:dev, :test]},
       {:credo, "~> 1.1.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.21", only: :dev, runtime: false},
+      {:mock, "~> 0.3.0", only: :test},
       {:jason, "~> 1.1"},
       {:plug, ">= 1.6.0"},
       {:ex_json_schema, "~> 0.7"},
+      {:mojito, "~> 0.6.0"},
     ]
   end
 end
