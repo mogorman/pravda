@@ -66,7 +66,7 @@ defmodule Pravda.MixProject do
       {:jason, "~> 1.1"},
       {:plug, ">= 1.6.0"},
       {:ex_json_schema, "~> 0.7"},
-      {:mojito, "~> 0.6.0"},
+      {:mojito, "~> 0.5.0"},
     ]
   end
 end
