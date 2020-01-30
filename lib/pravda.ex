@@ -336,59 +336,63 @@ defmodule Pravda do
     end
   end
 
+  defp validate_param(param, schema, headers, conn) do
+    name = Map.get(param, "name")
+
+    fragment_schema =
+      Map.get(param, "schema")
+      |> deref_if_possible(schema.schema)
+
+    required = Map.get(param, "required", true)
+
+    input_data =
+      case Map.get(param, "in") do
+        "path" ->
+          Map.get(conn.path_params, name)
+          |> fix_path_params(fragment_schema)
+
+        "query" ->
+          Map.get(conn.query_params, name)
+
+        "header" ->
+          Map.get(headers, name)
+      end
+
+    case ExJsonSchema.Validator.validate_fragment(
+           schema.schema,
+           fragment_schema,
+           input_data
+         ) do
+      :ok ->
+        true
+
+      {:error, reason} ->
+        case is_nil(input_data) and required == false do
+          true ->
+            true
+
+          false ->
+            %{name: name, reason: reason |> Map.new()}
+        end
+    end
+  end
+
   def validate_params(schema, conn) do
     params = schema.params
     headers = conn.req_headers |> Map.new()
 
     Enum.map(params, fn param ->
-      name = Map.get(param, "name")
-
-      fragment_schema =
-        Map.get(param, "schema")
-        |> deref_if_possible(schema.schema)
-
-      required = Map.get(param, "required", true)
-
-      input_data =
-        case Map.get(param, "in") do
-          "path" ->
-            Map.get(conn.path_params, name)
-            |> fix_path_params(fragment_schema)
-
-          "query" ->
-            Map.get(conn.query_params, name)
-
-          "header" ->
-            Map.get(headers, name)
-        end
-
-      case ExJsonSchema.Validator.validate_fragment(
-             schema.schema,
-             fragment_schema,
-             input_data
-           ) do
-        :ok ->
-          true
-
-        {:error, reason} ->
-          case is_nil(input_data) and required == false do
-            true ->
-              true
-
-            false ->
-              %{name: name, reason: reason |> Map.new()}
-          end
-      end
+      validate_param(param, schema, headers, conn)
     end)
-    |> Enum.reject(fn item -> item == true end)
-    |> (fn items ->
-          case items == [] do
-            true ->
+    |> Enum.reject(fn param -> param == true end)
+    |> (fn failed_params ->
+          case failed_params do
+            [] ->
               Logger.debug("Validated Params")
               true
 
-            false ->
-              {false, items}
+            _ ->
+              {false, failed_params}
           end
         end).()
   end

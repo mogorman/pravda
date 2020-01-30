@@ -66,18 +66,18 @@ defmodule Pravda.Plugs.Validate do
 
   defp attempt_validate(schema, conn, opts) do
     with {true, _} <- attempt_validate_params(schema, conn, opts),
-         {true, _} <- attempt_validate_body(schema, conn, opts)
-      do
+         {true, _} <- attempt_validate_body(schema, conn, opts) do
       case Map.get(opts, :validate_response) do
         true ->
           Plug.Conn.register_before_send(conn, fn conn ->
             attempt_validate_response(conn, Map.put(opts, :pravda, schema))
           end)
+
         _ ->
           conn
       end
-      else
-        error -> error
+    else
+      error -> error
     end
   end
 
