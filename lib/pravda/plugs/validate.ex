@@ -65,26 +65,19 @@ defmodule Pravda.Plugs.Validate do
   end
 
   defp attempt_validate(schema, conn, opts) do
-    case attempt_validate_params(schema, conn, opts) do
-      {false, errors} ->
-        error_handler(conn, opts, :invalid_params, {conn.method, conn.request_path, errors})
-
-      {true, _} ->
-        case attempt_validate_body(schema, conn, opts) do
-          {false, errors} ->
-            error_handler(conn, opts, :invalid_body, {conn.method, conn.request_path, errors})
-
-          {true, _} ->
-            case Map.get(opts, :validate_response) do
-              true ->
-                Plug.Conn.register_before_send(conn, fn conn ->
-                  attempt_validate_response(conn, Map.put(opts, :pravda, schema))
-                end)
-
-              false ->
-                conn
-            end
-        end
+    with {true, _} <- attempt_validate_params(schema, conn, opts),
+         {true, _} <- attempt_validate_body(schema, conn, opts)
+      do
+      case Map.get(opts, :validate_response) do
+        true ->
+          Plug.Conn.register_before_send(conn, fn conn ->
+            attempt_validate_response(conn, Map.put(opts, :pravda, schema))
+          end)
+        _ ->
+          conn
+      end
+      else
+        error -> error
     end
   end
 
@@ -120,7 +113,7 @@ defmodule Pravda.Plugs.Validate do
 
           {false, errors} ->
             Logger.error("Invalid body for #{url(conn)} #{inspect(errors)}")
-            {opts.allow_invalid_input, errors}
+            error_handler(conn, opts, :invalid_body, {conn.method, conn.request_path, errors})
         end
     end
   end
@@ -139,7 +132,7 @@ defmodule Pravda.Plugs.Validate do
 
           {false, errors} ->
             Logger.error("Invalid params for #{url(conn)} #{inspect(errors)}")
-            {opts.allow_invalid_input, errors}
+            error_handler(conn, opts, :invalid_params, {conn.method, conn.request_path, errors})
         end
     end
   end
