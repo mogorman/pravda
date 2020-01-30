@@ -56,7 +56,7 @@ defmodule Pravda.Plugs.Validate do
 
           _ ->
             Logger.error("No schema found for #{url(conn)}")
-            error_handler(conn, opts, :not_found, {conn.method, conn.requst_path, nil})
+            error_handler(conn, opts, :not_found, {conn.method, conn.request_path, nil})
         end
 
       schema ->
