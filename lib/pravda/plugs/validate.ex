@@ -107,7 +107,7 @@ defmodule Pravda.Plugs.Validate do
         {true, nil}
 
       _ ->
-        case Pravda.validate_body(schema, conn) do
+        case Pravda.validate_body(schema, conn, opts.allow_invalid_input) do
           true ->
             {true, nil}
 
@@ -126,7 +126,7 @@ defmodule Pravda.Plugs.Validate do
         {true, nil}
 
       _ ->
-        case Pravda.validate_params(schema, conn) do
+        case Pravda.validate_params(schema, conn, opts.allow_invalid_input) do
           true ->
             {true, nil}
 
