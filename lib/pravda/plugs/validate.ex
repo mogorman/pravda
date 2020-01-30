@@ -70,11 +70,13 @@ defmodule Pravda.Plugs.Validate do
         error_handler(conn, opts, :invalid_params, {conn.method, conn.request_path, errors})
 
       {true, _} ->
+        Logger.debug("Validated Params")
         case attempt_validate_body(schema, conn, opts) do
           {false, errors} ->
             error_handler(conn, opts, :invalid_body, {conn.method, conn.request_path, errors})
 
           {true, _} ->
+            Logger.debug("Validated Body")
             case Map.get(opts, :validate_response) do
               true ->
                 Plug.Conn.register_before_send(conn, fn conn ->
@@ -93,6 +95,7 @@ defmodule Pravda.Plugs.Validate do
 
     case Pravda.validate_response(schema, conn) do
       true ->
+        Logger.debug("Validated Response")
         conn
 
       {false, errors} ->

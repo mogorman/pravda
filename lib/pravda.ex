@@ -231,6 +231,9 @@ defmodule Pravda do
     end
   end
 
+  defp deref_if_possible(false, _schema) do
+    false
+  end
   defp deref_if_possible(result, schema) do
     case Map.get(result, "$ref") do
       nil ->
@@ -266,9 +269,9 @@ defmodule Pravda do
         _ -> %{"error" => "invalid json"}
       end
 
-    case Map.get(responses, "#{conn.status}f") do
+    case Map.get(responses, "#{conn.status}") do
       nil ->
-        {false, %{"body" => body, "errors" => "response for status code not found in spec"}}
+        {false, %{"body" => body, "errors" => "response for status code, #{conn.status}, not found in spec"}}
 
       response ->
         fragment_schema = deref_if_possible(response, schema.schema)
@@ -296,17 +299,31 @@ defmodule Pravda do
 
     required = Map.get(body, :required, true)
 
-    case ExJsonSchema.Validator.validate_fragment(schema.schema, fragment, conn.body_params) do
-      :ok ->
+    case {fragment, conn.body_params, required} do
+        # no body, no body provided, dont care if required
+      {false, %{}, _} ->
         true
-
-      {:error, reasons} ->
-        case is_nil(conn.body_params) and required == false do
-          true ->
+        # no body, anything provided, not required
+      {false, _, false} ->
+        true
+        # no body, something provided, required to be empty
+      {false, _, true} ->
+        false
+        {false, %{reason: "Body was provided when  not allowed"}}
+        # normal fragment
+      _ ->
+        case ExJsonSchema.Validator.validate_fragment(schema.schema, fragment, conn.body_params) do
+          :ok ->
             true
 
-          false ->
-            {false, %{reason: reasons |> Map.new()}}
+          {:error, reasons} ->
+            case required do
+              true ->
+                {false, %{reason: reasons |> Map.new()}}
+              _ ->
+                Logger.debug("Did not match schema but not required #{inspect(reasons)}")
+                true
+            end
         end
     end
   end
@@ -328,6 +345,7 @@ defmodule Pravda do
         case Map.get(param, "in") do
           "path" ->
             Map.get(conn.path_params, name)
+            |> fix_path_params(fragment_schema)
 
           "query" ->
             Map.get(conn.query_params, name)
@@ -366,6 +384,39 @@ defmodule Pravda do
         end).()
   end
 
+  defp fix_path_params(param, %{"type" => "integer"}) do
+    case Integer.parse(param) do
+      {int, ""} ->
+        int
+      _ ->
+        param
+    end
+  end
+
+  defp fix_path_params(param, %{"type" => "number"}) do
+    case param =~ "." do
+      true -> case Float.parse(param) do
+               {float, ""} ->
+                 float
+               _ ->
+                 param
+             end
+      false -> case Integer.parse(param) do
+               {int, ""} ->
+                 int
+               _ ->
+                 param
+             end
+    end
+  end
+
+  defp fix_path_params("true", %{"type" => "boolean"}), do: true
+  defp fix_path_params("false", %{"type" => "boolean"}), do: false
+  defp fix_path_params("null", %{"type" => "null"}), do: nil
+
+  defp fix_path_params(param, _) do
+    param
+  end
   @doc ~S"""
   Returns the version of the currently loaded Pravda, in string format.
   """
