@@ -291,7 +291,7 @@ defmodule Pravda do
     end
   end
 
-  defp validate_body_fragment(schema, fragment, body) do
+  defp validate_body_fragment(schema, fragment, body, required) do
     case ExJsonSchema.Validator.validate_fragment(schema, fragment, body) do
       :ok ->
         Logger.debug("Validated body")
@@ -336,7 +336,7 @@ defmodule Pravda do
 
       # normal fragment
       _ ->
-        validate_body_fragment(schema.schema, fragment, conn.body_params)
+        validate_body_fragment(schema.schema, fragment, conn.body_params, required)
     end
   end
 
