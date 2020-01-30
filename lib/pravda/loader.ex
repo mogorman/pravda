@@ -12,7 +12,7 @@ defmodule Pravda.Loader do
     File.read!(file_name)
   end
 
-  @spec load(any()) :: ExJsonSchema.Schema.t() | map()
+  @spec load(any()) :: ExJsonSchema.Schema.Root.t() | map()
   def load(json) when is_map(json) do
     ExJsonSchema.Schema.resolve(json)
   end

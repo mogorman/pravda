@@ -291,6 +291,24 @@ defmodule Pravda do
     end
   end
 
+  defp validate_body_fragment(schema, fragment, body) do
+    case ExJsonSchema.Validator.validate_fragment(schema, fragment, body) do
+      :ok ->
+        Logger.debug("Validated body")
+        true
+
+      {:error, reasons} ->
+        case required do
+          true ->
+            {false, %{reason: reasons |> Map.new()}}
+
+          _ ->
+            Logger.debug("Did not match schema but not required #{inspect(reasons)}")
+            true
+        end
+    end
+  end
+
   def validate_body(schema, conn) do
     body = schema.body
 
@@ -318,21 +336,7 @@ defmodule Pravda do
 
       # normal fragment
       _ ->
-        case ExJsonSchema.Validator.validate_fragment(schema.schema, fragment, conn.body_params) do
-          :ok ->
-            Logger.debug("Validated body")
-            true
-
-          {:error, reasons} ->
-            case required do
-              true ->
-                {false, %{reason: reasons |> Map.new()}}
-
-              _ ->
-                Logger.debug("Did not match schema but not required #{inspect(reasons)}")
-                true
-            end
-        end
+        validate_body_fragment(schema.schema, fragment, conn.body_params)
     end
   end
 
