@@ -1,4 +1,12 @@
 defmodule Pravda.Helpers.Template do
+  @moduledoc """
+  This handles the stock default templating for Pravda, outputting several stock error messages
+  """
+
+  @doc ~S"""
+  Returns the http status code for a given class of error
+  """
+  @spec get_stock_code(atom()) :: integer()
   def get_stock_code(:not_found) do
     501
   end
@@ -28,6 +36,10 @@ defmodule Pravda.Helpers.Template do
     }
   end
 
+  @doc ~S"""
+  Returns the response body for a given state
+  """
+  @spec get_stock_message(atom(), tuple()) :: map()
   def get_stock_message(:invalid_body, {_method, _url, errors}) do
     %{
       "message" => %{
