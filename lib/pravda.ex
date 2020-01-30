@@ -234,6 +234,7 @@ defmodule Pravda do
   defp deref_if_possible(false, _schema) do
     false
   end
+
   defp deref_if_possible(result, schema) do
     case Map.get(result, "$ref") do
       nil ->
@@ -300,26 +301,33 @@ defmodule Pravda do
     required = Map.get(body, :required, true)
 
     case {fragment, conn.body_params, required} do
-        # no body, no body provided, dont care if required
+      # no body, no body provided, dont care if required
       {false, %{}, _} ->
+        Logger.debug("Validated no body")
         true
-        # no body, anything provided, not required
+
+      # no body, anything provided, not required
       {false, _, false} ->
+        Logger.debug("Validated optional body")
         true
-        # no body, something provided, required to be empty
+
+      # no body, something provided, required to be empty
       {false, _, true} ->
         false
         {false, %{reason: "Body was provided when  not allowed"}}
-        # normal fragment
+
+      # normal fragment
       _ ->
         case ExJsonSchema.Validator.validate_fragment(schema.schema, fragment, conn.body_params) do
           :ok ->
+            Logger.debug("Validated body")
             true
 
           {:error, reasons} ->
             case required do
               true ->
                 {false, %{reason: reasons |> Map.new()}}
+
               _ ->
                 Logger.debug("Did not match schema but not required #{inspect(reasons)}")
                 true
@@ -376,6 +384,7 @@ defmodule Pravda do
     |> (fn items ->
           case items == [] do
             true ->
+              Logger.debug("Validated Params")
               true
 
             false ->
@@ -388,6 +397,7 @@ defmodule Pravda do
     case Integer.parse(param) do
       {int, ""} ->
         int
+
       _ ->
         param
     end
@@ -395,18 +405,23 @@ defmodule Pravda do
 
   defp fix_path_params(param, %{"type" => "number"}) do
     case param =~ "." do
-      true -> case Float.parse(param) do
-               {float, ""} ->
-                 float
-               _ ->
-                 param
-             end
-      false -> case Integer.parse(param) do
-               {int, ""} ->
-                 int
-               _ ->
-                 param
-             end
+      true ->
+        case Float.parse(param) do
+          {float, ""} ->
+            float
+
+          _ ->
+            param
+        end
+
+      false ->
+        case Integer.parse(param) do
+          {int, ""} ->
+            int
+
+          _ ->
+            param
+        end
     end
   end
 
@@ -417,6 +432,7 @@ defmodule Pravda do
   defp fix_path_params(param, _) do
     param
   end
+
   @doc ~S"""
   Returns the version of the currently loaded Pravda, in string format.
   """
