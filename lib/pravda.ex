@@ -38,7 +38,7 @@ defmodule Pravda do
     |> Map.new()
   end
 
-  @spec compile_spec(module(), any()) :: map()
+  @spec compile_spec(module(), any()) :: list()
   def compile_spec(router, raw_spec) do
     spec = Pravda.Loader.load(raw_spec)
     add_schema(router, spec)
@@ -51,6 +51,7 @@ defmodule Pravda do
          ]) do
       {:error, _} ->
         Logger.error("No paths found")
+        []
 
       {:ok, paths} ->
         title = get_title(spec)
