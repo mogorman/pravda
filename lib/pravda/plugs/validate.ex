@@ -28,14 +28,16 @@ defmodule Pravda.Plugs.Validate do
     %{
       paths: resolved_paths,
       all_paths_required: Map.get(opts, :all_paths_required, false),
+      error_callback: Map.get(opts, :error_callback, nil),
       custom_error: Map.get(opts, :custom_error, nil),
       explain_error: Map.get(opts, :explain_error, true),
       validate_params: Map.get(opts, :validate_params, true),
       validate_body: Map.get(opts, :validate_body, true),
       validate_response: Map.get(opts, :validate_response, true),
-      output_stubs: Map.get(opts, :output_stubs, false),
       allow_invalid_input: Map.get(opts, :allow_invalid_input, false),
       allow_invalid_output: Map.get(opts, :allow_invalid_output, false),
+      # TODO: support running this as a stubbed server
+      output_stubs: Map.get(opts, :output_stubs, false),
     }
   end
 
@@ -64,76 +66,106 @@ defmodule Pravda.Plugs.Validate do
     end
   end
 
-  defp attempt_validate(schema, conn, opts) do
-    with {true, _} <- attempt_validate_params(schema, conn, opts),
-         {true, _} <- attempt_validate_body(schema, conn, opts) do
-      case Map.get(opts, :validate_response) do
-        true ->
-          Plug.Conn.register_before_send(conn, fn conn ->
-            attempt_validate_response(conn, Map.put(opts, :pravda, schema))
-          end)
+  defp attempt_callback(_errors, _conn, %{error_callback: nil}) do
+    nil
+  end
 
-        _ ->
-          conn
-      end
+  defp attempt_callback(errors, conn, %{error_callback: callback} = opts) when is_function(callback) do
+    callback.(errors, conn, opts)
+  end
+
+  defp attempt_callback(errors, conn, %{error_callback: callback} = opts) do
+    callback.error_callback(errors, conn, opts)
+  end
+
+  defp output_response(_errors, conn, %{allow_invalid_output: true}) do
+    conn
+  end
+
+  defp output_response(errors, conn, opts) do
+    error_handler(conn, opts, :invalid_response, {conn.method, conn.request_path, errors})
+  end
+
+  defp attempt_validate(schema, conn, opts) do
+    with true <- attempt_validate_params(schema, conn, opts),
+         true <- attempt_validate_body(schema, conn, opts) do
+      attempt_validate_response(conn, opts, schema)
     else
       error -> error
     end
   end
 
-  def attempt_validate_response(conn, opts) do
-    schema = opts.pravda
+  def attempt_validate_response(conn, %{validate_response: false}) do
+    conn
+  end
 
-    case Pravda.validate_response(schema, conn) do
-      true ->
-        Logger.debug("Validated Response")
-        conn
+  def attempt_validate_response(conn, opts, schema) do
+    Plug.Conn.register_before_send(conn, fn conn ->
+      validate_response(conn, Map.put(opts, :response_schema, schema))
+    end)
+  end
 
+  def validate_response(conn, %{response_schema: schema} = opts) do
+    with true <- Pravda.validate_response(schema, conn.status, conn.resp_body) do
+      Logger.debug("Validated response for #{url(conn)}")
+      conn
+    else
       {false, errors} ->
-        case opts.allow_invalid_output do
-          true ->
-            Logger.error("Server is responding with invalid data #{inspect(errors)}")
-            conn
-
-          false ->
-            error_handler(conn, opts, :invalid_response, {conn.method, conn.request_path, errors})
-        end
+        Logger.error("Invalid response for #{url(conn)} #{inspect(errors)}")
+        attempt_callback(errors, conn, opts)
+        output_response(errors, conn, opts)
     end
   end
 
+  defp input_body(_errors, _conn, %{allow_invalid_output: true}) do
+    true
+  end
+
+  defp input_body(errors, conn, opts) do
+    error_handler(conn, opts, :invalid_body, {conn.method, conn.request_path, errors})
+  end
+
+  defp attempt_validate_body(_schema, _conn, %{validate_body: false}) do
+    true
+  end
+
   defp attempt_validate_body(schema, conn, opts) do
-    case opts.validate_body do
-      false ->
-        {true, nil}
-
-      _ ->
-        case Pravda.validate_body(schema, conn, opts.allow_invalid_input) do
-          true ->
-            {true, nil}
-
-          {false, errors} ->
-            Logger.error("Invalid body for #{url(conn)} #{inspect(errors)}")
-            error_handler(conn, opts, :invalid_body, {conn.method, conn.request_path, errors})
-        end
+    with true <- Pravda.validate_body(schema, conn.body_params) do
+      Logger.debug("Validated body for #{url(conn)}")
+      true
+    else
+      {false, errors} ->
+        Logger.error("Invalid body for #{url(conn)} #{inspect(errors)}")
+        attempt_callback(errors, conn, opts)
+        input_body(errors, conn, opts)
     end
+  end
+
+  defp input_params(_errors, _conn, %{allow_invalid_output: true}) do
+    true
+  end
+
+  defp input_params(errors, conn, opts) do
+    error_handler(conn, opts, :invalid_params, {conn.method, conn.request_path, errors})
+  end
+
+  defp attempt_validate_params(_schema, _conn, %{validate_params: false}) do
+    true
   end
 
   defp attempt_validate_params(schema, conn, opts) do
     conn = conn |> Plug.Conn.fetch_query_params()
+    headers = conn.req_headers |> Map.new()
 
-    case opts.validate_params do
-      false ->
-        {true, nil}
+    case Pravda.validate_params(schema, headers, conn.path_params, conn.query_params) do
+      true ->
+        Logger.debug("Validated prams for #{url(conn)}")
+        true
 
-      _ ->
-        case Pravda.validate_params(schema, conn, opts.allow_invalid_input) do
-          true ->
-            {true, nil}
-
-          {false, errors} ->
-            Logger.error("Invalid params for #{url(conn)} #{inspect(errors)}")
-            error_handler(conn, opts, :invalid_params, {conn.method, conn.request_path, errors})
-        end
+      {false, errors} ->
+        Logger.error("Invalid params for #{url(conn)} #{inspect(errors)}")
+        attempt_callback(errors, conn, opts)
+        input_params(errors, conn, opts)
     end
   end
 

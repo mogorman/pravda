@@ -5,29 +5,6 @@ defmodule Pravda do
   Documentation for Pravda.
   """
 
-  def init(%{router: router, specs: raw_specs} = opts) do
-    resolved_paths = Pravda.compile_paths(router, raw_specs)
-    # set empty defaults for specs and paths just in case
-    %{
-      paths: resolved_paths,
-      all_paths_required: Map.get(opts, :all_paths_required, false),
-      custom_error: Map.get(opts, :custom_error, nil),
-      explain_error: Map.get(opts, :explain_error, true),
-      validate_params: Map.get(opts, :validate_params, true),
-      validate_body: Map.get(opts, :validate_body, true),
-      validate_response: Map.get(opts, :validate_response, true),
-      output_stubs: Map.get(opts, :output_stubs, false),
-      allow_invalid_input: Map.get(opts, :allow_invalid_input, false),
-      allow_invalid_output: Map.get(opts, :allow_invalid_output, false),
-    }
-  end
-
-  def init(_opts) do
-    Logger.error("#{inspect(__MODULE__)}: specs and a router are required but were not provided.")
-
-    nil
-  end
-
   @doc ~S"""
   Returns the version of the currently loaded Pravda, in string format.
   """
@@ -262,18 +239,23 @@ defmodule Pravda do
     end
   end
 
-  def validate_response(schema, conn) do
+  defp reasons_to_list(reasons) do
+    Enum.map(reasons, fn {error, ref} ->
+      %{"error" => error, "ref" => ref}
+    end)
+  end
+  def validate_response(schema, status, resp_body) do
     responses = schema.responses
 
     body =
-      case Jason.decode(conn.resp_body) do
+      case Jason.decode(resp_body) do
         {:ok, json} -> json
         _ -> %{"error" => "invalid json"}
       end
 
-    case Map.get(responses, "#{conn.status}") do
+    case Map.get(responses, "#{status}") do
       nil ->
-        {false, %{"body" => body, "errors" => "response for status code, #{conn.status}, not found in spec"}}
+        {false, %{"body" => body, "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}])}}
 
       response ->
         fragment_schema = deref_if_possible(response, schema.schema)
@@ -286,34 +268,31 @@ defmodule Pravda do
           :ok ->
             true
 
-          {:error, reason} ->
-            {false, %{"body" => body, "errors" => reason |> Map.new()}}
+          {:error, reasons} ->
+            {false, %{"body" => body, "reasons" => reasons_to_list(reasons)}}
         end
     end
   end
 
-  defp validate_body_fragment(schema, fragment, body, required, allow_invalid) do
+  defp validate_body_fragment(schema, fragment, body, required) do
     case ExJsonSchema.Validator.validate_fragment(schema, fragment, body) do
       :ok ->
         Logger.debug("Validated body")
         true
 
       {:error, reasons} ->
-        case {required, allow_invalid} do
-          {true, false} ->
-            {false, %{reason: reasons |> Map.new()}}
-
-          {_, true} ->
+        case required do
+          false ->
+            Logger.debug("Did not match schema but not required #{inspect(reasons)}")
             true
 
           _ ->
-            Logger.debug("Did not match schema but not required #{inspect(reasons)}")
-            true
+            {false,  %{"body" => body, "reasons" => reasons_to_list(reasons)}}
         end
     end
   end
 
-  def validate_body(schema, conn, allow_invalid) do
+  def validate_body(schema, body_params) do
     body = schema.body
 
     fragment =
@@ -322,33 +301,28 @@ defmodule Pravda do
 
     required = Map.get(body, :required, true)
 
-    case {fragment, conn.body_params, required, allow_invalid} do
+    case {fragment, body_params, required} do
       # no body, no body provided, dont care if required
-      {false, %{}, _, _} ->
+      {false, %{}, _} ->
         Logger.debug("Validated no body")
         true
 
       # no body, anything provided, not required
-      {false, _, false, _} ->
+      {false, _, false} ->
         Logger.debug("Validated optional body")
         true
 
       # no body, something provided, required to be empty
-      {false, _, true, false} ->
-        false
-        {false, %{reason: "Body was provided when  not allowed"}}
-
-      # no body, something provided, required to be empty, but we allow invalid
-      {false, _, true, true} ->
-        true
+      {false, _, true} ->
+        {false, %{"body" => body_params, "reasons" => reasons_to_list([{"Body was provided when not allowed", ""}])}}
 
       # normal fragment
       _ ->
-        validate_body_fragment(schema.schema, fragment, conn.body_params, required, allow_invalid)
+        validate_body_fragment(schema.schema, fragment, body_params, required)
     end
   end
 
-  defp validate_param(param, schema, headers, conn) do
+  defp validate_param(param, schema, headers, path_params, query_params) do
     name = Map.get(param, "name")
 
     fragment_schema =
@@ -356,15 +330,15 @@ defmodule Pravda do
       |> deref_if_possible(schema.schema)
 
     required = Map.get(param, "required", true)
-
+    type = Map.get(param, "in")
     input_data =
-      case Map.get(param, "in") do
+      case type do
         "path" ->
-          Map.get(conn.path_params, name)
+          Map.get(path_params, name)
           |> fix_path_params(fragment_schema)
 
         "query" ->
-          Map.get(conn.query_params, name)
+          Map.get(query_params, name)
 
         "header" ->
           Map.get(headers, name)
@@ -378,36 +352,34 @@ defmodule Pravda do
       :ok ->
         true
 
-      {:error, reason} ->
+      {:error, reasons} ->
         case is_nil(input_data) and required == false do
           true ->
             true
 
           false ->
-            %{name: name, reason: reason |> Map.new()}
+            Enum.map(reasons, fn {error, ref} ->
+              %{"input" => input_data, "name" => name, "type" => type, "error" => error, "ref" => ref}
+            end)
         end
     end
   end
 
-  def validate_params(schema, conn, allow_invalid) do
+  def validate_params(schema, headers, path_params, query_params) do
     params = schema.params
-    headers = conn.req_headers |> Map.new()
 
     Enum.map(params, fn param ->
-      validate_param(param, schema, headers, conn)
+      validate_param(param, schema, headers, path_params, query_params)
     end)
     |> Enum.reject(fn param -> param == true end)
     |> (fn failed_params ->
-          case {failed_params, allow_invalid} do
-            {[], _} ->
+          case failed_params do
+            [] ->
               Logger.debug("Validated Params")
               true
 
-            {_, true} ->
-              true
-
             _ ->
-              {false, failed_params}
+              {false, %{"reasons" => List.flatten(failed_params)}}
           end
         end).()
   end
