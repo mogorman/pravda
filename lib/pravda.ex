@@ -143,7 +143,7 @@ defmodule Pravda do
            "parameters",
          ]) do
       {:error, _} ->
-        Logger.warn("No parameters provided for #{method}: #{path}")
+        Logger.debug("No parameters provided for #{method}: #{path}")
         []
 
       {:ok, params} ->
