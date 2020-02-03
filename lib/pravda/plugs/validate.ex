@@ -36,8 +36,6 @@ defmodule Pravda.Plugs.Validate do
       validate_response: Map.get(opts, :validate_response, true),
       allow_invalid_input: Map.get(opts, :allow_invalid_input, false),
       allow_invalid_output: Map.get(opts, :allow_invalid_output, false),
-      # TODO: support running this as a stubbed server
-      output_stubs: Map.get(opts, :output_stubs, false),
     }
   end
 
@@ -106,10 +104,11 @@ defmodule Pravda.Plugs.Validate do
   end
 
   def validate_response(conn, %{response_schema: schema} = opts) do
-    with true <- Pravda.validate_response(schema, conn.status, conn.resp_body) do
-      Logger.debug("Validated response for #{url(conn)}")
-      conn
-    else
+    case Pravda.validate_response(schema, conn.status, conn.resp_body) do
+      true ->
+        Logger.debug("Validated response for #{url(conn)}")
+        conn
+
       {false, errors} ->
         Logger.error("Invalid response for #{url(conn)} #{inspect(errors)}")
         attempt_callback(errors, conn, opts)
@@ -130,10 +129,11 @@ defmodule Pravda.Plugs.Validate do
   end
 
   defp attempt_validate_body(schema, conn, opts) do
-    with true <- Pravda.validate_body(schema, conn.body_params) do
-      Logger.debug("Validated body for #{url(conn)}")
-      true
-    else
+    case Pravda.validate_body(schema, conn.body_params) do
+      true ->
+        Logger.debug("Validated body for #{url(conn)}")
+        true
+
       {false, errors} ->
         Logger.error("Invalid body for #{url(conn)} #{inspect(errors)}")
         attempt_callback(errors, conn, opts)
