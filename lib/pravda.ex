@@ -244,6 +244,7 @@ defmodule Pravda do
       %{"error" => error, "ref" => ref}
     end)
   end
+
   def validate_response(schema, status, resp_body) do
     responses = schema.responses
 
@@ -255,7 +256,11 @@ defmodule Pravda do
 
     case Map.get(responses, "#{status}") do
       nil ->
-        {false, %{"body" => body, "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}])}}
+        {false,
+         %{
+           "body" => body,
+           "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}]),
+         }}
 
       response ->
         fragment_schema = deref_if_possible(response, schema.schema)
@@ -287,7 +292,7 @@ defmodule Pravda do
             true
 
           _ ->
-            {false,  %{"body" => body, "reasons" => reasons_to_list(reasons)}}
+            {false, %{"body" => body, "reasons" => reasons_to_list(reasons)}}
         end
     end
   end
@@ -331,6 +336,7 @@ defmodule Pravda do
 
     required = Map.get(param, "required", true)
     type = Map.get(param, "in")
+
     input_data =
       case type do
         "path" ->
