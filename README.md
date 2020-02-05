@@ -9,3 +9,17 @@
 
 
 ![Pravda logo](/pravda_logo.png)
+
+Pravda is a validator for openapi 3.0 specs.
+
+```elixir
+    plug(Pravda.Plugs.Validate, %{
+      router: SomeApi.Router,
+      specs: [
+        Pravda.Loader.read_file(
+          "deps/api_specs/compiled_spec/openapi.json"
+        ),
+      ],
+    })
+
+```
