@@ -8,20 +8,20 @@ defmodule Pravda do
   @doc ~S"""
   Returns the version of the currently loaded Pravda, in string format.
   """
-  #  @spec compile_specs(module(), list()) :: map()
-  def compile_paths(router, raw_specs) do
-    Enum.map(raw_specs, fn raw_spec -> compile_spec(router, raw_spec) end)
+  @spec compile_paths(list()) :: map()
+  def compile_paths(raw_specs) do
+    Enum.map(raw_specs, fn raw_spec -> compile_spec(raw_spec) end)
     |> List.flatten()
     |> Map.new()
   end
 
-  @spec compile_spec(module(), any()) :: list()
-  def compile_spec(router, raw_spec) do
+  @spec compile_spec(String.t() | map()) :: list()
+  def compile_spec(raw_spec) do
     spec = Pravda.Loader.load(raw_spec)
-    add_schema(router, spec)
+    add_schema(spec)
   end
 
-  def add_schema(router, spec) do
+  def add_schema(spec) do
     case ExJsonSchema.Schema.get_fragment(spec, [
            :root,
            "paths",
@@ -33,12 +33,12 @@ defmodule Pravda do
       {:ok, paths} ->
         title = get_title(spec)
 
-        Enum.map(List.flatten(build_routes(paths)), fn path -> is_routable(router, path, title, spec) end)
+        Enum.map(List.flatten(build_routes(paths)), fn path -> is_routable(path, title, spec) end)
         |> Enum.reject(fn item -> is_nil(item) end)
     end
   end
 
-  defp is_routable(_router, {method, path}, title, schema) do
+  defp is_routable({method, path}, title, schema) do
     lower_method = String.downcase(method)
 
     {{method, path},
@@ -51,32 +51,6 @@ defmodule Pravda do
      }}
   end
 
-  # Phoenix.Router.route_info does not seem available at compile time look more into this later
-  # case Phoenix.Router.route_info(router, method, path, "") do
-  #       :error ->
-  #         Logger.warn("No implementation found for route [#{title}] #{method}: #{path}")
-  #         nil
-  #       route ->
-  #         schema_url =
-  #           Enum.reduce(route.path_params, route.route, fn {param, _value},
-  #                                                          path ->
-  #             String.replace(path, ":#{param}", "{#{param}}")
-  #           end)
-  #         case schema_url == path do
-  #           true ->
-
-  #             {{method, path}, %{params: get_params(lower_method, path, schema),
-  #                              body: get_body(lower_method, path, schema),
-  #                              responses: get_responses(lower_method, path, schema),
-  #                              title: title,
-  # #                             schema: schema
-  #                             }}
-  #           false ->
-  #             Logger.error("No Match for route [#{title}] #{method}: #{path} != #{schema_url}")
-  #             nil
-  #         end
-  #     end
-
   defp build_route(route_name, methods) do
     Enum.map(
       methods,
@@ -88,8 +62,6 @@ defmodule Pravda do
   end
 
   defp build_routes(api_routes) do
-    #    router = Module.concat(app, Router)
-
     Enum.map(
       api_routes,
       fn {route_name, route} ->

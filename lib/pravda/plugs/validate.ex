@@ -22,8 +22,8 @@ defmodule Pravda.Plugs.Validate do
   @type open_api_spec :: map()
 
   @impl Plug
-  def init(%{router: router, specs: raw_specs} = opts) do
-    resolved_paths = Pravda.compile_paths(router, raw_specs)
+  def init(%{specs: raw_specs} = opts) do
+    resolved_paths = Pravda.compile_paths(raw_specs)
     # set empty defaults for specs and paths just in case
     %{
       paths: resolved_paths,
