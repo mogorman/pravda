@@ -31,17 +31,20 @@ defmodule PravdaTest do
 
   test "No paths returns empty map" do
     assert capture_log([level: :error], fn ->
-    file = Pravda.Loader.read_file("test/no_paths.json")
-    result = Pravda.compile_paths([file])
-    assert(result == %{})
-    end) =~ "No paths found"
+             file = Pravda.Loader.read_file("test/no_paths.json")
+             result = Pravda.compile_paths([file])
+             assert(result == %{})
+           end) =~ "No paths found"
   end
 
   test "get responses returns empty map if none found" do
     file = Pravda.Loader.read_file("test/no_responses.json")
-    responses = Pravda.compile_paths([file])
-    |> Map.get({"DELETE", "/pet/{petId}"})
-    |> Map.get(:responses)
+
+    responses =
+      Pravda.compile_paths([file])
+      |> Map.get({"DELETE", "/pet/{petId}"})
+      |> Map.get(:responses)
+
     assert(responses == %{})
   end
 end
