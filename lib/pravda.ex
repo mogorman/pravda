@@ -218,36 +218,34 @@ defmodule Pravda do
   end
 
   def validate_response(schema, status, resp_body) do
-    responses = schema.responses
+    with response when not is_nil(response) <- Map.get(schema.responses, "#{status}"),
+         fragment_schema when fragment_schema != false <- deref_if_possible(response, schema.schema),
+         {:ok, body} <- Jason.decode(resp_body) do
+      case ExJsonSchema.Validator.validate_fragment(
+             schema.schema,
+             fragment_schema,
+             body
+           ) do
+        :ok ->
+          true
 
-    body =
-      case Jason.decode(resp_body) do
-        {:ok, json} -> json
-        _ -> %{"error" => "invalid json"}
+        {:error, reasons} ->
+          {false, %{"body" => body, "reasons" => reasons_to_list(reasons)}}
       end
-
-    case Map.get(responses, "#{status}") do
+    else
       nil ->
         {false,
          %{
-           "body" => body,
+           "body" => resp_body,
            "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}]),
          }}
 
-      response ->
-        fragment_schema = deref_if_possible(response, schema.schema)
+      false ->
+        Logger.info("Spec is not complete enough for us to validate this, or response is not json and we cant validate")
+        true
 
-        case ExJsonSchema.Validator.validate_fragment(
-               schema.schema,
-               fragment_schema,
-               body
-             ) do
-          :ok ->
-            true
-
-          {:error, reasons} ->
-            {false, %{"body" => body, "reasons" => reasons_to_list(reasons)}}
-        end
+      _ ->
+        %{"body" => resp_body, "reasons" => reasons_to_list([{"Invalid Json not able to decode", ""}])}
     end
   end
 
