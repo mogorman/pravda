@@ -48,6 +48,9 @@ defmodule Pravda.Plugs.Validate do
   end
 
   @impl Plug
+  @doc ~S"""
+  Call function we attempt to validate params, then body, then our response body. and we return based on if we allow invalid input/output and the validity of the content
+  """
   def call(conn, opts) do
     case get_schema_url_from_request(conn, opts) do
       nil ->
@@ -95,6 +98,9 @@ defmodule Pravda.Plugs.Validate do
     end
   end
 
+  @doc ~S"""
+  attempt_validate_response checks to see if we are going to attempt to validate a response before we send it out.
+  """
   @spec attempt_validate_response(Plug.Conn.t(), map(), map()) :: Plug.Conn.t()
   def attempt_validate_response(conn, %{validate_response: false}, _) do
     conn
@@ -106,7 +112,7 @@ defmodule Pravda.Plugs.Validate do
     end)
   end
 
-  def validate_response(conn, %{response_schema: schema} = opts) do
+  defp validate_response(conn, %{response_schema: schema} = opts) do
     case Pravda.validate_response(schema, conn.status, conn.resp_body) do
       true ->
         Logger.debug("Validated response for #{url(conn)}")
