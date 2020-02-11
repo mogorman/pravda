@@ -69,21 +69,21 @@ defmodule Pravda.Plugs.Validate do
     with false <- check(opts, :disable),
          schema when not is_nil(schema) <- get_schema_url_from_request(conn, opts) do
       attempt_validate(schema, conn, opts)
+    else
+      true ->
+        conn
+
+      nil ->
+        case check(opts, :all_paths_required) do
+          false ->
+            Logger.info("No schema found for #{url(conn)}")
+            conn
+
+          _ ->
+            Logger.error("No schema found for #{url(conn)}")
+            error_handler(conn, opts, :not_found, {conn.method, conn.request_path, nil})
+        end
     end
-  else
-    true ->
-      conn
-
-    nil ->
-      case check(opts, :all_paths_required) do
-        false ->
-          Logger.info("No schema found for #{url(conn)}")
-          conn
-
-        _ ->
-          Logger.error("No schema found for #{url(conn)}")
-          error_handler(conn, opts, :not_found, {conn.method, conn.request_path, nil})
-      end
   end
 
   defp attempt_callback(_errors, _conn, %{error_callback: nil}) do
