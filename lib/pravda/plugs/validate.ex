@@ -22,6 +22,9 @@ defmodule Pravda.Plugs.Validate do
   @type open_api_spec :: map()
 
   @impl Plug
+  @doc ~S"""
+  Init function sets all default variables and compiles the spec and paths so it can be fast. at run time.
+  """
   def init(%{specs: raw_specs} = opts) do
     resolved_paths = Pravda.compile_paths(raw_specs)
     # set empty defaults for specs and paths just in case
@@ -40,8 +43,7 @@ defmodule Pravda.Plugs.Validate do
   end
 
   def init(_opts) do
-    Logger.error("#{inspect(__MODULE__)}: specs and a router are required but were not provided.")
-
+    Logger.error("#{inspect(__MODULE__)}: specs are required but were not provided.")
     nil
   end
 
@@ -93,7 +95,8 @@ defmodule Pravda.Plugs.Validate do
     end
   end
 
-  def attempt_validate_response(conn, %{validate_response: false}) do
+  @spec attempt_validate_response(Plug.Conn.t(), map(), map()) :: Plug.Conn.t()
+  def attempt_validate_response(conn, %{validate_response: false}, _) do
     conn
   end
 
@@ -116,7 +119,7 @@ defmodule Pravda.Plugs.Validate do
     end
   end
 
-  defp input_body(_errors, _conn, %{allow_invalid_output: true}) do
+  defp input_body(_errors, _conn, %{allow_invalid_input: true}) do
     true
   end
 
@@ -141,7 +144,7 @@ defmodule Pravda.Plugs.Validate do
     end
   end
 
-  defp input_params(_errors, _conn, %{allow_invalid_output: true}) do
+  defp input_params(_errors, _conn, %{allow_invalid_input: true}) do
     true
   end
 

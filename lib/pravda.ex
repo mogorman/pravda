@@ -6,7 +6,8 @@ defmodule Pravda do
   """
 
   @doc ~S"""
-  Returns the version of the currently loaded Pravda, in string format.
+  Compile Paths is the function used to take a list of spec files and compile them into a
+  list of routes we can validate with.
   """
   @spec compile_paths(list()) :: map()
   def compile_paths(raw_specs) do
@@ -15,13 +16,12 @@ defmodule Pravda do
     |> Map.new()
   end
 
-  @spec compile_spec(String.t() | map()) :: list()
-  def compile_spec(raw_spec) do
+  defp compile_spec(raw_spec) do
     spec = Pravda.Loader.load(raw_spec)
     add_schema(spec)
   end
 
-  def add_schema(spec) do
+  defp add_schema(spec) do
     case ExJsonSchema.Schema.get_fragment(spec, [
            :root,
            "paths",
@@ -195,6 +195,12 @@ defmodule Pravda do
     end
   end
 
+  @doc ~S"""
+  phoenix_route_to_schema takes a connections current path location and method
+  and outputs a url that will match an openapi schema base definition it uses
+  the router to correctly resolve the name and order of path arguments
+  """
+  @spec phoenix_route_to_schema(Plug.Conn.t(), module()) :: {String.t(), String.t()} | {nil, nil}
   def phoenix_route_to_schema(conn, router) do
     case Phoenix.Router.route_info(router, conn.method, conn.request_path, conn.host) do
       :error ->
@@ -217,6 +223,10 @@ defmodule Pravda do
     end)
   end
 
+  @doc ~S"""
+  validate_response is used to validate the responses section for a spec, for a specific method, path, and status.
+  """
+  @spec validate_response(map(), String.t() | integer(), String.t()) :: true | {false, map()}
   def validate_response(schema, status, resp_body) do
     with response when not is_nil(response) <- Map.get(schema.responses, "#{status}"),
          fragment_schema when fragment_schema != false <- deref_if_possible(response, schema.schema),
@@ -245,7 +255,7 @@ defmodule Pravda do
         true
 
       _ ->
-        %{"body" => resp_body, "reasons" => reasons_to_list([{"Invalid Json not able to decode", ""}])}
+        {false, %{"body" => resp_body, "reasons" => reasons_to_list([{"Invalid Json not able to decode", ""}])}}
     end
   end
 
@@ -267,6 +277,10 @@ defmodule Pravda do
     end
   end
 
+  @doc ~S"""
+  validate_body is used to validate the input body for a spec, for a specific method, path.
+  """
+  @spec validate_body(map(), map()) :: true | {false, map()}
   def validate_body(schema, body_params) do
     body = schema.body
 
@@ -341,6 +355,10 @@ defmodule Pravda do
     end
   end
 
+  @doc ~S"""
+  validate params takes in and validates headers, path, and query parameters against the spec
+  """
+  @spec validate_params(map(), map(), map(), map()) :: true | {false, map()}
   def validate_params(schema, headers, path_params, query_params) do
     params = schema.params
 
@@ -358,6 +376,10 @@ defmodule Pravda do
               {false, %{"reasons" => List.flatten(failed_params)}}
           end
         end).()
+  end
+
+  defp fix_path_params(nil, %{"type" => "integer"}) do
+    nil
   end
 
   defp fix_path_params(param, %{"type" => "integer"}) do

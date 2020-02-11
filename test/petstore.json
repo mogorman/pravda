@@ -75,7 +75,15 @@
           }
         ],
         "requestBody": {
-          "$ref": "#/components/requestBodies/Pet"
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Pet"
+            }
+          }
+        },
+        "description": "Pet object that needs to be added to the store",
+        "required": true
         }
       },
       "put": {
@@ -250,8 +258,7 @@
             "description": "ID of pet to return",
             "required": true,
             "schema": {
-              "type": "integer",
-              "format": "int64"
+              "type": "number"
             }
           }
         ],
@@ -298,8 +305,7 @@
             "description": "ID of pet that needs to be updated",
             "required": true,
             "schema": {
-              "type": "integer",
-              "format": "int64"
+              "type": "array"
             }
           }
         ],
@@ -347,7 +353,15 @@
           {
             "name": "api_key",
             "in": "header",
-            "required": false,
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+            {
+            "name": "query_key",
+            "in": "query",
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -503,7 +517,7 @@
             }
           },
           "description": "order placed for purchasing the pet",
-          "required": true
+          "required": false
         }
       }
     },
