@@ -80,7 +80,7 @@ defmodule Pravda.Plugs.ValidateTest do
         %{
           error_callback: fn _, _, _ -> nil end,
           all_paths_required: true,
-          specs: [Pravda.Loader.read_file("test/petstore.json")]
+          specs: [Pravda.Loader.read_file("test/petstore.json")],
         }
         |> Validate.init()
 
