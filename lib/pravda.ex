@@ -229,6 +229,7 @@ defmodule Pravda do
   @spec validate_response(map(), String.t() | integer(), String.t()) :: true | {false, map()}
   def validate_response(schema, status, resp_body) do
     resp_body = "#{resp_body}"
+
     with response when not is_nil(response) <- Map.get(schema.responses, "#{status}"),
          fragment_schema when fragment_schema != false <- deref_if_possible(response, schema.schema),
          {:ok, body} <- Jason.decode(resp_body) do
