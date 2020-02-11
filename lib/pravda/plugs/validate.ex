@@ -118,7 +118,7 @@ defmodule Pravda.Plugs.Validate do
   @doc ~S"""
   attempt_validate_response checks to see if we are going to attempt to validate a response before we send it out.
   """
-  @spec attempt_validate_response(Plug.Conn.t(), map(), map()) :: Plug.Conn.t()
+  @spec attempt_validate_response(Plug.Conn.t(), map(), map(), boolean()) :: Plug.Conn.t()
   def attempt_validate_response(conn, _opts, _schema, false) do
     conn
   end
