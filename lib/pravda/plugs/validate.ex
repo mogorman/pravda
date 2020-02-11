@@ -29,8 +29,11 @@ defmodule Pravda.Plugs.Validate do
       false ->
         false
 
-      callback ->
-        callback.()
+      {app, key} ->
+        Application.get_env(app, key)
+
+      {app, key, default} ->
+        Application.get_env(app, key, default)
     end
   end
 
