@@ -43,7 +43,7 @@ defmodule Pravda.Plugs.Validate do
     # set empty defaults for specs and paths just in case
     %{
       paths: resolved_paths,
-      disable: Map.get(opts, :all_paths_required, false),
+      disable: Map.get(opts, :disable, false),
       all_paths_required: Map.get(opts, :all_paths_required, false),
       error_callback: Map.get(opts, :error_callback, nil),
       custom_error: Map.get(opts, :custom_error, nil),
