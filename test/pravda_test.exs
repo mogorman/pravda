@@ -19,7 +19,7 @@ defmodule PravdaTest do
     file = Pravda.Loader.read_file("test/petstore.json")
     result = Pravda.compile_paths([file])
     assert(result != %{})
-    delete_endpoint = Map.get(result, {"DELETE", "/pet/{petId}"})
+    delete_endpoint = Map.get(result, {"DELETE", "/pet/{petId}"}) |> Map.get("1.0.0")
     keys = Map.keys(delete_endpoint)
     assert(:body in keys)
     assert(:params in keys)
@@ -44,6 +44,7 @@ defmodule PravdaTest do
              result =
                Pravda.compile_paths([file])
                |> Map.get({"POST", "/pet"})
+               |> Map.get("1.0.0")
                |> Map.get(:params)
 
              assert(result == [])
@@ -56,6 +57,7 @@ defmodule PravdaTest do
     responses =
       Pravda.compile_paths([file])
       |> Map.get({"DELETE", "/pet/{petId}"})
+      |> Map.get("1.0.0")
       |> Map.get(:responses)
 
     assert(responses == %{})
@@ -101,6 +103,7 @@ defmodule PravdaTest do
     responses =
       Pravda.compile_paths([file])
       |> Map.get({"GET", "/pet/findByStatus"})
+      |> Map.get("1.0.0")
 
     assert(true == Pravda.validate_response(responses, "200", "[]"))
     assert(true == Pravda.validate_response(responses, "200", "[{\"name\":\"shirly\", \"photoUrls\":[]}]"))
@@ -112,6 +115,7 @@ defmodule PravdaTest do
     responses =
       Pravda.compile_paths([file])
       |> Map.get({"GET", "/pet/findByStatus"})
+      |> Map.get("1.0.0")
 
     assert({false, _} = Pravda.validate_response(responses, "200", "{}"))
     assert({false, _} = Pravda.validate_response(responses, "666", "{}"))
@@ -122,6 +126,7 @@ defmodule PravdaTest do
              responses =
                Pravda.compile_paths([file])
                |> Map.get({"POST", "/pet"})
+               |> Map.get("1.0.0")
 
              assert(true == Pravda.validate_response(responses, "405", "{}"))
            end) =~ "Spec is not complete enough for us to validate this, or response is not json and we cant validate"
@@ -133,6 +138,7 @@ defmodule PravdaTest do
     responses =
       Pravda.compile_paths([file])
       |> Map.get({"POST", "/pet"})
+      |> Map.get("1.0.0")
 
     assert(true == Pravda.validate_response(responses, "405", "{ Not valid"))
   end
@@ -143,6 +149,7 @@ defmodule PravdaTest do
     path =
       Pravda.compile_paths([file])
       |> Map.get({"POST", "/pet"})
+      |> Map.get("1.0.0")
 
     assert(true == Pravda.validate_body(path, %{"name" => "sally", "photoUrls" => []}))
   end
@@ -153,6 +160,7 @@ defmodule PravdaTest do
     path =
       Pravda.compile_paths([file])
       |> Map.get({"POST", "/store/order"})
+      |> Map.get("1.0.0")
 
     assert capture_log([level: :debug], fn ->
              assert(true == Pravda.validate_body(path, %{"name" => "sally", "photoUrls" => [], "id" => "asdf"}))
@@ -166,6 +174,7 @@ defmodule PravdaTest do
     path =
       Pravda.compile_paths([file])
       |> Map.get({"DELETE", "/pet/{petId}"})
+      |> Map.get("1.0.0")
 
     assert capture_log([level: :debug], fn ->
              assert(true == Pravda.validate_body(path, %{}))
@@ -184,6 +193,7 @@ defmodule PravdaTest do
     path =
       Pravda.compile_paths([file])
       |> Map.get({"DELETE", "/pet/{petId}"})
+      |> Map.get("1.0.0")
 
     assert(true == Pravda.validate_params(path, %{"api_key" => "5"}, %{"petId" => "7"}, %{"query_key" => "work"}))
   end
@@ -194,6 +204,7 @@ defmodule PravdaTest do
     path =
       Pravda.compile_paths([file])
       |> Map.get({"DELETE", "/pet/{petId}"})
+      |> Map.get("1.0.0")
 
     {false, error} = Pravda.validate_params(path, %{"api_key" => 5}, %{}, %{})
     assert(is_list(Map.get(error, "reasons")))
@@ -205,6 +216,7 @@ defmodule PravdaTest do
     path =
       Pravda.compile_paths([file])
       |> Map.get({"GET", "/pet/{petId}"})
+      |> Map.get("1.0.0")
 
     assert(true == Pravda.validate_params(path, %{"api_key" => 5}, %{"petId" => "4"}, %{}))
     assert(true == Pravda.validate_params(path, %{"api_key" => 5}, %{"petId" => "4.4"}, %{}))
@@ -216,6 +228,7 @@ defmodule PravdaTest do
     path =
       Pravda.compile_paths([file])
       |> Map.get({"GET", "/pet/{petId}"})
+      |> Map.get("1.0.0")
 
     {false, error} = Pravda.validate_params(path, %{"api_key" => 5}, %{"petId" => "asdf"}, %{})
     assert(is_list(Map.get(error, "reasons")))
@@ -225,6 +238,7 @@ defmodule PravdaTest do
     path =
       Pravda.compile_paths([file])
       |> Map.get({"DELETE", "/pet/{petId}"})
+      |> Map.get("1.0.0")
 
     {false, error} = Pravda.validate_params(path, %{"api_key" => 5}, %{"petId" => "a.sdf"}, %{})
     assert(is_list(Map.get(error, "reasons")))
@@ -232,6 +246,7 @@ defmodule PravdaTest do
     path =
       Pravda.compile_paths([file])
       |> Map.get({"POST", "/pet/{petId}"})
+      |> Map.get("1.0.0")
 
     {false, error} = Pravda.validate_params(path, %{"api_key" => 5}, %{"petId" => "a.sdf"}, %{})
     assert(is_list(Map.get(error, "reasons")))

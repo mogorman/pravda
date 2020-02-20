@@ -46,7 +46,11 @@ defmodule Pravda.Plugs.Validate do
     # set empty defaults for specs and paths just in case
     %{
       paths: resolved_paths,
+      version: Map.get(opts, :version),
       disable: Map.get(opts, :disable, false),
+      spec_var_placement: Map.get(opts, :spec_var_placement, :header),
+      spec_var: Map.get(opts, :spec_var, nil),
+      migrations: Map.get(opts, :migrations),
       all_paths_required: Map.get(opts, :all_paths_required, false),
       error_callback: Map.get(opts, :error_callback, nil),
       custom_error: Map.get(opts, :custom_error, nil),
@@ -133,7 +137,8 @@ defmodule Pravda.Plugs.Validate do
   end
 
   defp validate_response(conn, %{response_schema: schema} = opts) do
-    case Pravda.validate_response(schema, conn.status, conn.resp_body) do
+    version = get_schema_with_version(schema, conn, opts)
+    case Pravda.validate_response(schema[version], conn.status, conn.resp_body) do
       true ->
         Logger.debug("Validated response for #{url(conn)}")
         conn
@@ -158,7 +163,8 @@ defmodule Pravda.Plugs.Validate do
   end
 
   defp attempt_validate_body(schema, conn, opts, _) do
-    case Pravda.validate_body(schema, conn.body_params) do
+    version = get_schema_with_version(schema, conn, opts)
+    case Pravda.validate_body(schema[version], conn.body_params) do
       true ->
         Logger.debug("Validated body for #{url(conn)}")
         true
@@ -185,8 +191,9 @@ defmodule Pravda.Plugs.Validate do
   defp attempt_validate_params(schema, conn, opts, _) do
     conn = conn |> Plug.Conn.fetch_query_params()
     headers = conn.req_headers |> Map.new()
+    version = get_schema_with_version(schema, conn, opts)
 
-    case Pravda.validate_params(schema, headers, conn.path_params, conn.query_params) do
+    case Pravda.validate_params(schema[version], headers, conn.path_params, conn.query_params) do
       true ->
         Logger.debug("Validated prams for #{url(conn)}")
         true
@@ -226,6 +233,83 @@ defmodule Pravda.Plugs.Validate do
 
   defp url(conn) do
     "#{conn.method}:#{conn.request_path}"
+  end
+
+  defp closest_version(versions, match_version) do
+    Enum.reduce(versions, nil, fn version, acc ->
+      acc = acc || version
+
+      case Version.compare(version, match_version) do
+        :lt ->
+          version
+
+        :eq ->
+          version
+
+        :gt ->
+          acc
+      end
+    end)
+  end
+
+  defp get_closest_schema_with_version(path, version) do
+    case Map.get(path, version) do
+      nil ->
+        versions = Map.get(path, "versions")
+        closest_version = closest_version(versions, version)
+        get_closest_schema_with_version(path, closest_version)
+
+      _result ->
+        version
+    end
+  end
+
+  defp get_schema_with_version(nil, _conn, _opts) do
+    nil
+  end
+
+  defp get_schema_with_version(path, _conn, %{spec_var: nil}) do
+    Map.get(path, "versions") |> List.first()
+  end
+
+  defp get_schema_with_version(path, conn, %{spec_var: var_name, spec_var_placement: :header}) do
+    case Plug.Conn.get_req_header(conn, var_name) do
+      [] ->
+        get_schema_with_version(path, conn, %{spec_var: nil})
+
+      [version] ->
+        get_closest_schema_with_version(path, version)
+    end
+  end
+
+  defp get_schema_with_version(path, conn, %{spec_var: var_name, spec_var_placement: :body}) do
+    case Map.get(conn.body_params, var_name) do
+      nil ->
+        get_schema_with_version(path, conn, %{spec_var: nil})
+
+      version ->
+        get_closest_schema_with_version(path, version)
+    end
+  end
+
+  defp get_schema_with_version(path, conn, %{spec_var: var_name, spec_var_placement: :query}) do
+    case Map.get(conn.query_params, var_name) do
+      nil ->
+        get_schema_with_version(path, conn, %{spec_var: nil})
+
+      version ->
+        get_closest_schema_with_version(path, version)
+    end
+  end
+
+  defp get_schema_with_version(path, conn, %{spec_var: var_name, spec_var_placement: :path}) do
+    case Map.get(conn.path_params, var_name) do
+      nil ->
+        get_schema_with_version(path, conn, %{spec_var: nil})
+
+      version ->
+        get_closest_schema_with_version(path, version)
+    end
   end
 
   defp get_schema_url_from_request(conn, opts) do

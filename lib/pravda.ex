@@ -13,7 +13,33 @@ defmodule Pravda do
   def compile_paths(raw_specs) do
     Enum.map(raw_specs, fn raw_spec -> compile_spec(raw_spec) end)
     |> List.flatten()
-    |> Map.new()
+    |> Enum.reduce(%{}, fn {{method, path, version}, item}, acc ->
+      insert =
+        case Map.get(acc, {method, path}) do
+          nil ->
+            %{version => item}
+
+          result ->
+            Map.put(result, version, item)
+        end
+
+      Map.put(acc, {method, path}, insert)
+    end)
+    |> Enum.reduce(%{}, fn {{method, path}, items}, acc ->
+      versions = Map.keys(items)
+      items = Map.put(items, "versions", sort_versions(versions))
+      Map.put(acc, {method, path}, items)
+    end)
+  end
+
+  defp sort_versions(versions) do
+    Enum.sort(versions, fn a, b ->
+      case Version.compare(a, b) do
+        :lt -> true
+        :eq -> true
+        _ -> false
+      end
+    end)
   end
 
   defp compile_spec(raw_spec) do
@@ -32,16 +58,17 @@ defmodule Pravda do
 
       {:ok, paths} ->
         title = get_title(spec)
+        version = get_version(spec)
 
-        Enum.map(List.flatten(build_routes(paths)), fn path -> is_routable(path, title, spec) end)
+        Enum.map(List.flatten(build_routes(paths, version)), fn path -> is_routable(path, title, spec) end)
         |> Enum.reject(fn item -> is_nil(item) end)
     end
   end
 
-  defp is_routable({method, path}, title, schema) do
+  defp is_routable({method, path, version}, title, schema) do
     lower_method = String.downcase(method)
 
-    {{method, path},
+    {{method, path, version},
      %{
        params: get_params(lower_method, path, schema),
        body: get_body(lower_method, path, schema),
@@ -51,21 +78,21 @@ defmodule Pravda do
      }}
   end
 
-  defp build_route(route_name, methods) do
+  defp build_route(route_name, methods, version) do
     Enum.map(
       methods,
       fn method ->
         method = String.upcase(method)
-        {method, route_name}
+        {method, route_name, version}
       end
     )
   end
 
-  defp build_routes(api_routes) do
+  defp build_routes(api_routes, version) do
     Enum.map(
       api_routes,
       fn {route_name, route} ->
-        build_route(route_name, Map.keys(route))
+        build_route(route_name, Map.keys(route), version)
       end
     )
   end
@@ -80,6 +107,19 @@ defmodule Pravda do
 
       {:ok, result} ->
         Map.get(result, "title")
+    end
+  end
+
+  defp get_version(schema) do
+    case ExJsonSchema.Schema.get_fragment(schema, [
+           :root,
+           "info",
+         ]) do
+      {:error, _} ->
+        false
+
+      {:ok, result} ->
+        Map.get(result, "version")
     end
   end
 

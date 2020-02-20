@@ -12,6 +12,25 @@ defmodule Pravda.Loader do
     File.read!(file_name)
   end
 
+  defmacro read_dir(dir_name) do
+    recursive_read(dir_name)
+  end
+
+  def recursive_read(dir) do
+    Enum.map(File.ls!(dir), fn file ->
+      file_name = "#{dir}/#{file}"
+
+      case File.dir?(file_name) do
+        true ->
+          recursive_read(file_name)
+
+        false ->
+          File.read!(file_name)
+      end
+    end)
+    |> List.flatten()
+  end
+
   @spec load(any()) :: ExJsonSchema.Schema.Root.t() | map()
   def load(json) when is_map(json) do
     ExJsonSchema.Schema.resolve(json)
