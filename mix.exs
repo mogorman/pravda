@@ -58,7 +58,6 @@ defmodule Pravda.MixProject do
   defp deps do
     [
       {:phoenix, "~> 1.4.0"},
-      {:freedom_formatter, "~> 1.0", only: [:dev, :test]},
       {:dialyxir, "~> 1.0.0-rc.7", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.10", only: [:dev, :test]},
       {:credo, "~> 1.1.0", only: [:dev, :test], runtime: false},
