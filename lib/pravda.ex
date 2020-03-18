@@ -206,7 +206,8 @@ defmodule Pravda do
 
           case Map.fetch(body, "properties") do
             {:ok, properties} ->
-	      type = Map.get(body, "type")
+              type = Map.get(body, "type")
+
               ref_properties =
                 Enum.map(properties, fn {item, item_schema} ->
                   {item, deref_if_possible(item_schema, schema)}
@@ -242,32 +243,38 @@ defmodule Pravda do
 
       {:ok, result} ->
         response = deref_if_possible(result, schema)
-	deref_response =
-	  case Map.get(response, "type") do
-	    "object" ->
+
+        deref_response =
+          case Map.get(response, "type") do
+            "object" ->
               case Map.fetch(response, "properties") do
-		 {:ok, properties} ->
-		  type = Map.get(response, "type")
-		  ref_properties =
+                {:ok, properties} ->
+                  type = Map.get(response, "type")
+
+                  ref_properties =
                     Enum.map(properties, fn {item, item_schema} ->
                       {item, deref_if_possible(item_schema, schema)}
                     end)
                     |> Map.new()
-		  %{response | "properties" => ref_properties, "type" => type}
 
-		  _ ->
-		  response
-	      end
-	    "array" ->
-	      case Map.fetch(response, "items") do
-		{:ok, items} ->
-		  %{response | "items" => deref_if_possible(items, schema), "type" => "array"}
-		_ ->
-		  response
-	      end
-	    _ ->
-	      response
-        end
+                  %{response | "properties" => ref_properties, "type" => type}
+
+                _ ->
+                  response
+              end
+
+            "array" ->
+              case Map.fetch(response, "items") do
+                {:ok, items} ->
+                  %{response | "items" => deref_if_possible(items, schema), "type" => "array"}
+
+                _ ->
+                  response
+              end
+
+            _ ->
+              response
+          end
 
         {string_response_code, deref_response}
     end

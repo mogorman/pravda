@@ -395,14 +395,16 @@ defmodule Pravda.Plugs.Validate do
 
       _ ->
         path = Pravda.phoenix_route_to_schema(conn, router)
+
         case Map.fetch(opts.paths, path) do
-	  {:ok, schema} ->
+          {:ok, schema} ->
             input_version = get_initial_schema_with_version(conn, opts)
             matched_version = get_closest_input_schema_with_version(schema, input_version)
-	    {path, schema, matched_version}
-	  _->
-	    nil
-	end
+            {path, schema, matched_version}
+
+          _ ->
+            nil
+        end
     end
   end
 end
