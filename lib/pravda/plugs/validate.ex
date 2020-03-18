@@ -50,7 +50,7 @@ defmodule Pravda.Plugs.Validate do
       disable: Map.get(opts, :disable, false),
       spec_var_placement: Map.get(opts, :spec_var_placement, :header),
       spec_var: Map.get(opts, :spec_var, nil),
-      migrations: Map.get(opts, :migrations),
+      migration_callback: Map.get(opts, :migration_callback),
       all_paths_required: Map.get(opts, :all_paths_required, false),
       error_callback: Map.get(opts, :error_callback, nil),
       custom_error: Map.get(opts, :custom_error, nil),
@@ -60,6 +60,8 @@ defmodule Pravda.Plugs.Validate do
       validate_response: Map.get(opts, :validate_response, true),
       allow_invalid_input: Map.get(opts, :allow_invalid_input, false),
       allow_invalid_output: Map.get(opts, :allow_invalid_output, false),
+      migrate_input: Map.get(opts, :migrate_input, true),
+      migrate_output: Map.get(opts, :migrate_output, true)
     }
   end
 
@@ -72,10 +74,11 @@ defmodule Pravda.Plugs.Validate do
   @doc ~S"""
   Call function we attempt to validate params, then body, then our response body. and we return based on if we allow invalid input/output and the validity of the content
   """
+
   def call(conn, opts) do
     with false <- check(opts, :disable),
-         schema when not is_nil(schema) <- get_schema_url_from_request(conn, opts) do
-      attempt_validate(schema, conn, opts)
+         {path, schema, matched_version} <- get_schema_url_from_request(conn, opts) do
+      attempt_validate(path, schema, matched_version, conn, opts)
     else
       true ->
         conn
@@ -113,10 +116,21 @@ defmodule Pravda.Plugs.Validate do
     error_handler(conn, opts, :invalid_response, {conn.method, conn.request_path, errors})
   end
 
-  defp attempt_validate(schema, conn, opts) do
-    with true <- attempt_validate_params(schema, conn, opts, check(opts, :validate_params)),
-         true <- attempt_validate_body(schema, conn, opts, check(opts, :validate_body)) do
-      attempt_validate_response(conn, opts, schema, check(opts, :validate_response))
+  defp attempt_validate(path, schema, matched_version, conn, opts) do
+    conn = conn |> Plug.Conn.fetch_query_params()
+
+    with {:ok, version, conn} <-
+           attempt_migrate_input(path, schema, matched_version, conn, opts, check(opts, :migrate_input)),
+         true <- attempt_validate_params(schema, version, conn, opts, check(opts, :validate_params)),
+         true <- attempt_validate_body(schema, version, conn, opts, check(opts, :validate_body)) do
+      attempt_validate_response(
+        conn,
+        matched_version,
+        opts,
+        schema,
+        path,
+        check(opts, :validate_response) || check(opts, :migrate_output)
+      )
     else
       error -> error
     end
@@ -125,19 +139,59 @@ defmodule Pravda.Plugs.Validate do
   @doc ~S"""
   attempt_validate_response checks to see if we are going to attempt to validate a response before we send it out.
   """
-  @spec attempt_validate_response(Plug.Conn.t(), map(), map(), boolean()) :: Plug.Conn.t()
-  def attempt_validate_response(conn, _opts, _schema, false) do
+  @spec attempt_validate_response(Plug.Conn.t(), map(), map(), map(), tuple(), boolean()) :: Plug.Conn.t()
+  def attempt_validate_response(conn, _matched_version, _opts, _schema, _path, false) do
     conn
   end
 
-  def attempt_validate_response(conn, opts, schema, _) do
+  def attempt_validate_response(conn, matched_version, opts, schema, path, _) do
     Plug.Conn.register_before_send(conn, fn conn ->
-      validate_response(conn, Map.put(opts, :response_schema, schema))
+      opts =
+        opts
+        |> Map.put(:response_schema, schema)
+        |> Map.put(:response_path, path)
+        |> Map.put(:matched_version, matched_version)
+
+      {conn, opts} = migrate_output(conn, opts, check(opts, :migrate_output))
+      validate_response(conn, opts, check(opts, :validate_response))
     end)
   end
 
-  defp validate_response(conn, %{response_schema: schema} = opts) do
-    version = get_schema_with_version(schema, conn, opts)
+  defp migrate_output(conn, %{response_schema: schema} = opts, false) do
+    {conn, Map.put(opts, :matched_version, List.last(schema["version"]))}
+  end
+
+  defp migrate_output(
+         conn,
+         %{response_path: path, response_schema: schema, matched_version: matched_version} = opts,
+         true
+       ) do
+    conn =
+      case Enum.at(schema["versions"], 0) == matched_version do
+        true ->
+          schema["versions"]
+
+        false ->
+          schema["versions"]
+          |> Enum.chunk_by(&(&1 == matched_version))
+          |> Enum.drop(1)
+          |> List.flatten()
+      end
+      |> Enum.reverse()
+      |> Enum.reduce(conn, fn schema_version, conn ->
+        callback = Map.get(opts, :migration_callback)
+        callback.down(path, schema_version, conn, opts)
+        callback.down(:all, schema_version, conn, opts)
+      end)
+
+    {conn, opts}
+  end
+
+  defp validate_response(conn, _opts, false) do
+    conn
+  end
+
+  defp validate_response(conn, %{response_schema: schema, matched_version: version} = opts, _) do
     case Pravda.validate_response(schema[version], conn.status, conn.resp_body) do
       true ->
         Logger.debug("Validated response for #{url(conn)}")
@@ -158,12 +212,54 @@ defmodule Pravda.Plugs.Validate do
     error_handler(conn, opts, :invalid_body, {conn.method, conn.request_path, errors})
   end
 
-  defp attempt_validate_body(_schema, _conn, _opts, false) do
+  defp attempt_migrate_input(_path, _schema, version, conn, _opts, false) do
+    {:ok, version, conn}
+  end
+
+  defp attempt_migrate_input(path, schema, matched_version, conn, opts, true) do
+    supported_versions = schema["versions"]
+
+    conn =
+      supported_versions
+      |> Enum.chunk_by(&(&1 == matched_version))
+      |> Enum.drop(1)
+      |> List.flatten()
+      |> Enum.reduce(conn, fn schema_version, conn ->
+        callback = Map.get(opts, :migration_callback)
+        callback.up(path, schema_version, conn, opts)
+        callback.up(:all, schema_version, conn, opts)
+      end)
+
+    last_version = List.last(supported_versions)
+    spec_var = Map.get(opts, :spec_var, nil)
+
+    case Map.get(opts, :spec_var_placement) do
+      :header ->
+        {:ok, last_version, put_req_header(conn, spec_var, last_version)}
+
+      :query ->
+        {:ok, last_version,
+         %Plug.Conn{
+           conn
+           | params: Map.put(conn.params, spec_var, last_version),
+             query_params: Map.put(conn.query_params, spec_var, last_version)
+         }}
+
+      :path ->
+        {:ok, last_version,
+         %Plug.Conn{
+           conn
+           | params: Map.put(conn.params, spec_var, last_version),
+             path_params: Map.put(conn.path_params, spec_var, last_version)
+         }}
+    end
+  end
+
+  defp attempt_validate_body(_schema, _version, _conn, _opts, false) do
     true
   end
 
-  defp attempt_validate_body(schema, conn, opts, _) do
-    version = get_schema_with_version(schema, conn, opts)
+  defp attempt_validate_body(schema, version, conn, opts, _) do
     case Pravda.validate_body(schema[version], conn.body_params) do
       true ->
         Logger.debug("Validated body for #{url(conn)}")
@@ -184,14 +280,12 @@ defmodule Pravda.Plugs.Validate do
     error_handler(conn, opts, :invalid_params, {conn.method, conn.request_path, errors})
   end
 
-  defp attempt_validate_params(_schema, _conn, _opts, false) do
+  defp attempt_validate_params(_schema, _version, _conn, _opts, false) do
     true
   end
 
-  defp attempt_validate_params(schema, conn, opts, _) do
-    conn = conn |> Plug.Conn.fetch_query_params()
+  defp attempt_validate_params(schema, version, conn, opts, _) do
     headers = conn.req_headers |> Map.new()
-    version = get_schema_with_version(schema, conn, opts)
 
     case Pravda.validate_params(schema[version], headers, conn.path_params, conn.query_params) do
       true ->
@@ -235,10 +329,8 @@ defmodule Pravda.Plugs.Validate do
     "#{conn.method}:#{conn.request_path}"
   end
 
-  defp closest_version(versions, match_version) do
-    Enum.reduce(versions, nil, fn version, acc ->
-      acc = acc || version
-
+  def closest_input_version(versions, match_version) do
+    Enum.reduce(versions, Enum.at(versions, 0), fn version, acc ->
       case Version.compare(version, match_version) do
         :lt ->
           version
@@ -252,64 +344,46 @@ defmodule Pravda.Plugs.Validate do
     end)
   end
 
-  defp get_closest_schema_with_version(path, version) do
-    case Map.get(path, version) do
+  defp get_closest_input_schema_with_version(schema, nil) do
+    Map.get(schema, "versions") |> List.first()
+  end
+
+  defp get_closest_input_schema_with_version(schema, version) do
+    case Map.get(schema, version) do
       nil ->
-        versions = Map.get(path, "versions")
-        closest_version = closest_version(versions, version)
-        get_closest_schema_with_version(path, closest_version)
+        versions = Map.get(schema, "versions")
+        closest_version = closest_input_version(versions, version)
+        get_closest_input_schema_with_version(schema, closest_version)
 
       _result ->
         version
     end
   end
 
-  defp get_schema_with_version(nil, _conn, _opts) do
-    nil
-  end
-
-  defp get_schema_with_version(path, _conn, %{spec_var: nil}) do
-    Map.get(path, "versions") |> List.first()
-  end
-
-  defp get_schema_with_version(path, conn, %{spec_var: var_name, spec_var_placement: :header}) do
+  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :header}) do
     case Plug.Conn.get_req_header(conn, var_name) do
-      [] ->
-        get_schema_with_version(path, conn, %{spec_var: nil})
-
       [version] ->
-        get_closest_schema_with_version(path, version)
+        version
+
+      _ ->
+        nil
     end
   end
 
-  defp get_schema_with_version(path, conn, %{spec_var: var_name, spec_var_placement: :body}) do
-    case Map.get(conn.body_params, var_name) do
-      nil ->
-        get_schema_with_version(path, conn, %{spec_var: nil})
-
-      version ->
-        get_closest_schema_with_version(path, version)
-    end
+  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :body}) do
+    Map.get(conn.body_params, var_name)
   end
 
-  defp get_schema_with_version(path, conn, %{spec_var: var_name, spec_var_placement: :query}) do
-    case Map.get(conn.query_params, var_name) do
-      nil ->
-        get_schema_with_version(path, conn, %{spec_var: nil})
-
-      version ->
-        get_closest_schema_with_version(path, version)
-    end
+  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :query}) do
+    Map.get(conn.query_params, var_name)
   end
 
-  defp get_schema_with_version(path, conn, %{spec_var: var_name, spec_var_placement: :path}) do
-    case Map.get(conn.path_params, var_name) do
-      nil ->
-        get_schema_with_version(path, conn, %{spec_var: nil})
+  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :path}) do
+    Map.get(conn.path_params, var_name)
+  end
 
-      version ->
-        get_closest_schema_with_version(path, version)
-    end
+  defp get_initial_schema_with_version(_conn, _opts) do
+    nil
   end
 
   defp get_schema_url_from_request(conn, opts) do
@@ -320,8 +394,15 @@ defmodule Pravda.Plugs.Validate do
         nil
 
       _ ->
-        key = Pravda.phoenix_route_to_schema(conn, router)
-        Map.get(opts.paths, key)
+        path = Pravda.phoenix_route_to_schema(conn, router)
+        case Map.fetch(opts.paths, path) do
+	  {:ok, schema} ->
+            input_version = get_initial_schema_with_version(conn, opts)
+            matched_version = get_closest_input_schema_with_version(schema, input_version)
+	    {path, schema, matched_version}
+	  _->
+	    nil
+	end
     end
   end
 end

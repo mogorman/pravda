@@ -27,9 +27,38 @@ defmodule Pravda do
     end)
     |> Enum.reduce(%{}, fn {{method, path}, items}, acc ->
       versions = Map.keys(items)
-      items = Map.put(items, "versions", sort_versions(versions))
+      sorted = sort_versions(versions)
+      items = Map.put(items, "versions", sorted)
       Map.put(acc, {method, path}, items)
     end)
+    |> Enum.map(fn {{method, path}, specs} ->
+      versions = Map.get(specs, "versions")
+      cleaned_specs = remove_duplicates(specs, versions)
+
+      {{method, path}, cleaned_specs}
+    end)
+    |> Map.new()
+  end
+
+  defp remove_duplicates(specs, versions) do
+    {cleaned_versions, _} =
+      Enum.reduce(versions, {[], %{params: nil, body: nil, responses: nil}}, fn version,
+                                                                                {cleaned_versions, last_spec} ->
+        spec = Map.get(specs, version)
+
+        case spec.params == last_spec.params and
+               spec.body == last_spec.body and
+               spec.responses == last_spec.responses do
+          true ->
+            {cleaned_versions, last_spec}
+
+          false ->
+            {cleaned_versions ++ [version], spec}
+        end
+      end)
+
+    Map.take(specs, cleaned_versions)
+    |> Map.put("versions", cleaned_versions)
   end
 
   defp sort_versions(versions) do
@@ -50,7 +79,7 @@ defmodule Pravda do
   defp add_schema(spec) do
     case ExJsonSchema.Schema.get_fragment(spec, [
            :root,
-           "paths",
+           "paths"
          ]) do
       {:error, _} ->
         Logger.error("No paths found")
@@ -73,8 +102,7 @@ defmodule Pravda do
        params: get_params(lower_method, path, schema),
        body: get_body(lower_method, path, schema),
        responses: get_responses(lower_method, path, schema),
-       title: title,
-       schema: schema,
+       title: title
      }}
   end
 
@@ -100,7 +128,7 @@ defmodule Pravda do
   defp get_title(schema) do
     case ExJsonSchema.Schema.get_fragment(schema, [
            :root,
-           "info",
+           "info"
          ]) do
       {:error, _} ->
         false
@@ -113,7 +141,7 @@ defmodule Pravda do
   defp get_version(schema) do
     case ExJsonSchema.Schema.get_fragment(schema, [
            :root,
-           "info",
+           "info"
          ]) do
       {:error, _} ->
         false
@@ -129,7 +157,7 @@ defmodule Pravda do
            "paths",
            path,
            method,
-           "parameters",
+           "parameters"
          ]) do
       {:error, _} ->
         Logger.debug("No parameters provided for #{method}: #{path}")
@@ -142,7 +170,7 @@ defmodule Pravda do
     end
   end
 
-  defp get_body(method, path, schema) do
+  def get_body(method, path, schema) do
     required =
       case ExJsonSchema.Schema.get_fragment(schema, [
              :root,
@@ -150,7 +178,7 @@ defmodule Pravda do
              path,
              method,
              "requestBody",
-             "required",
+             "required"
            ]) do
         {:error, _} ->
           true
@@ -168,19 +196,34 @@ defmodule Pravda do
              "requestBody",
              "content",
              "application/json",
-             "schema",
+             "schema"
            ]) do
         {:error, _} ->
           false
 
         {:ok, result} ->
-          deref_if_possible(result, schema)
+          body = deref_if_possible(result, schema)
+
+          case Map.fetch(body, "properties") do
+            {:ok, properties} ->
+	      type = Map.get(body, "type")
+              ref_properties =
+                Enum.map(properties, fn {item, item_schema} ->
+                  {item, deref_if_possible(item_schema, schema)}
+                end)
+                |> Map.new()
+
+              %{body | "properties" => ref_properties, "type" => type}
+
+            _ ->
+              body
+          end
       end
 
     %{required: required, body: body}
   end
 
-  defp get_response(response_code, method, path, schema) do
+  def get_response(response_code, method, path, schema) do
     string_response_code = "#{response_code}"
 
     case ExJsonSchema.Schema.get_fragment(schema, [
@@ -192,13 +235,41 @@ defmodule Pravda do
            string_response_code,
            "content",
            "application/json",
-           "schema",
+           "schema"
          ]) do
       {:error, _} ->
         {string_response_code, false}
 
       {:ok, result} ->
-        {string_response_code, deref_if_possible(result, schema)}
+        response = deref_if_possible(result, schema)
+	deref_response =
+	  case Map.get(response, "type") do
+	    "object" ->
+              case Map.fetch(response, "properties") do
+		 {:ok, properties} ->
+		  type = Map.get(response, "type")
+		  ref_properties =
+                    Enum.map(properties, fn {item, item_schema} ->
+                      {item, deref_if_possible(item_schema, schema)}
+                    end)
+                    |> Map.new()
+		  %{response | "properties" => ref_properties, "type" => type}
+
+		  _ ->
+		  response
+	      end
+	    "array" ->
+	      case Map.fetch(response, "items") do
+		{:ok, items} ->
+		  %{response | "items" => deref_if_possible(items, schema), "type" => "array"}
+		_ ->
+		  response
+	      end
+	    _ ->
+	      response
+        end
+
+        {string_response_code, deref_response}
     end
   end
 
@@ -208,7 +279,7 @@ defmodule Pravda do
            "paths",
            path,
            method,
-           "responses",
+           "responses"
          ]) do
       {:error, _} ->
         %{}
@@ -221,17 +292,45 @@ defmodule Pravda do
     end
   end
 
-  defp deref_if_possible(false, _schema) do
+  def deref_if_possible(false, _schema) do
     false
   end
 
-  defp deref_if_possible(result, schema) do
+  def deref_if_possible(result, schema) do
     case Map.get(result, "$ref") do
       nil ->
         result
 
       ref ->
-        ExJsonSchema.Schema.get_fragment!(schema, ref)
+        deref_if_possible(ExJsonSchema.Schema.get_fragment!(schema, ref), schema)
+    end
+    |> resolve_schema(schema)
+    |> resolve_properties(schema)
+  end
+
+  def resolve_schema(fragment, schema) do
+    case Map.get(fragment, "schema", %{}) |> Map.get("$ref") do
+      nil ->
+        fragment
+
+      ref ->
+        %{fragment | "schema" => ExJsonSchema.Schema.get_fragment!(schema, ref)}
+    end
+  end
+
+  def resolve_properties(fragment, schema) do
+    case Map.get(fragment, "properties") do
+      nil ->
+        fragment
+
+      properties ->
+        properties =
+          Enum.map(properties, fn {name, property} ->
+            {name, deref_if_possible(property, schema)}
+          end)
+          |> Map.new()
+
+        %{fragment | "properties" => properties}
     end
   end
 
@@ -270,14 +369,9 @@ defmodule Pravda do
   def validate_response(schema, status, resp_body) do
     resp_body = "#{resp_body}"
 
-    with response when not is_nil(response) <- Map.get(schema.responses, "#{status}"),
-         fragment_schema when fragment_schema != false <- deref_if_possible(response, schema.schema),
+    with response when not is_nil(response) and response != false <- Map.get(schema.responses, "#{status}"),
          {:ok, body} <- Jason.decode(resp_body) do
-      case ExJsonSchema.Validator.validate_fragment(
-             schema.schema,
-             fragment_schema,
-             body
-           ) do
+      case ExJsonSchema.Validator.validate(response, body) do
         :ok ->
           true
 
@@ -289,7 +383,7 @@ defmodule Pravda do
         {false,
          %{
            "body" => resp_body,
-           "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}]),
+           "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}])
          }}
 
       false ->
@@ -301,8 +395,8 @@ defmodule Pravda do
     end
   end
 
-  defp validate_body_fragment(schema, fragment, body, required) do
-    case ExJsonSchema.Validator.validate_fragment(schema, fragment, body) do
+  defp validate_body_fragment(fragment, body, required) do
+    case ExJsonSchema.Validator.validate(fragment, body) do
       :ok ->
         Logger.debug("Validated body")
         true
@@ -326,9 +420,7 @@ defmodule Pravda do
   def validate_body(schema, body_params) do
     body = schema.body
 
-    fragment =
-      Map.get(body, :body)
-      |> deref_if_possible(schema.schema)
+    fragment = Map.get(body, :body)
 
     required = Map.get(body, :required, true)
 
@@ -349,16 +441,16 @@ defmodule Pravda do
 
       # normal fragment
       _ ->
-        validate_body_fragment(schema.schema, fragment, body_params, required)
+        validate_body_fragment(fragment, body_params, required)
     end
   end
 
   defp validate_param(param, schema, headers, path_params, query_params) do
     name = Map.get(param, "name")
 
-    fragment_schema =
-      Map.get(param, "schema")
-      |> deref_if_possible(schema.schema)
+    fragment = Enum.find(schema.params, fn param -> param["name"] == name end)
+    #   Map.get(param, "schema")
+    #   |> deref_if_possible(schema.schema)
 
     required = Map.get(param, "required", true)
     type = Map.get(param, "in")
@@ -367,7 +459,7 @@ defmodule Pravda do
       case type do
         "path" ->
           Map.get(path_params, name)
-          |> fix_path_params(fragment_schema)
+          |> fix_path_params(fragment["schema"])
 
         "query" ->
           Map.get(query_params, name)
@@ -376,9 +468,8 @@ defmodule Pravda do
           Map.get(headers, name)
       end
 
-    case ExJsonSchema.Validator.validate_fragment(
-           schema.schema,
-           fragment_schema,
+    case ExJsonSchema.Validator.validate(
+           fragment["schema"],
            input_data
          ) do
       :ok ->

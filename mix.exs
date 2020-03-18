@@ -16,11 +16,11 @@ defmodule Pravda.MixProject do
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.post": :test,
-        "coveralls.html": :test,
+        "coveralls.html": :test
       ],
       dialyzer: [
         plt_add_deps: :transitive,
-        plt_add_apps: [:ex_unit, :mix],
+        plt_add_apps: [:ex_unit, :mix]
       ],
       # Docs
       name: "Pravda",
@@ -30,15 +30,15 @@ defmodule Pravda.MixProject do
         # The main page in the docs
         main: "Pravda",
         logo: "pravda.png",
-        extras: ["README.md"],
-      ],
+        extras: ["README.md"]
+      ]
     ]
   end
 
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger],
+      extra_applications: [:logger]
     ]
   end
 
@@ -50,7 +50,7 @@ defmodule Pravda.MixProject do
     [
       maintainers: ["Matthew O'Gorman mog@rldn.net"],
       links: %{"GitHub" => "https://github.com/mogorman/pravda"},
-      licenses: ["MIT"],
+      licenses: ["MIT"]
     ]
   end
 
@@ -66,7 +66,7 @@ defmodule Pravda.MixProject do
       {:jason, "~> 1.1"},
       {:plug, ">= 1.6.0"},
       {:ex_json_schema, "~> 0.7"},
-      {:mojito, "~> 0.5.0"},
+      {:mojito, "~> 0.5.0"}
     ]
   end
 end

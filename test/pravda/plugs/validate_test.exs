@@ -16,7 +16,7 @@ defmodule Pravda.Plugs.ValidateTest do
          path_params: %{"petId" => "44"},
          pipe_through: [:accept_json],
          plug_opts: :get,
-         route: "/pet/:petId",
+         route: "/pet/:petId"
        }, fn -> nil end, fn -> nil end, {nil, nil}}
     end
 
@@ -35,14 +35,14 @@ defmodule Pravda.Plugs.ValidateTest do
       path_info: [],
       path_params: path_params,
       private: %{
-        :phoenix_router => FakeRouter,
+        :phoenix_router => FakeRouter
       },
       query_params: %{},
       query_string: "",
       remote_ip: {127, 0, 0, 1},
       req_cookies: [],
       req_headers: [],
-      request_path: url,
+      request_path: url
     }
   end
 
@@ -59,7 +59,9 @@ defmodule Pravda.Plugs.ValidateTest do
   test "validate call" do
     with_mock Plug.Conn,
       fetch_query_params: fn conn -> conn end,
-      register_before_send: fn conn, _ -> conn end do
+      register_before_send: fn conn, _ -> conn end,
+      put_req_header: fn conn, var_name, value -> conn end,
+      get_req_header: fn conn, var_name -> [] end do
       opts =
         %{error_callback: fn _, _, _ -> nil end, specs: [Pravda.Loader.read_file("test/petstore.json")]}
         |> Validate.init()
@@ -74,13 +76,15 @@ defmodule Pravda.Plugs.ValidateTest do
       fetch_query_params: fn conn -> conn end,
       register_before_send: fn conn, _ -> conn end,
       put_resp_header: fn conn, _, _ -> conn end,
+      get_req_header: fn conn, var_name -> [] end,
+      put_req_header: fn conn, var_name, value -> conn end,
       resp: fn conn, _, _ -> conn end,
       halt: fn conn -> conn end do
       opts =
         %{
           error_callback: fn _, _, _ -> nil end,
           all_paths_required: true,
-          specs: [Pravda.Loader.read_file("test/petstore.json")],
+          specs: [Pravda.Loader.read_file("test/petstore.json")]
         }
         |> Validate.init()
 
@@ -97,6 +101,8 @@ defmodule Pravda.Plugs.ValidateTest do
       fetch_query_params: fn conn -> conn end,
       register_before_send: fn conn, _ -> conn end,
       put_resp_header: fn conn, _, _ -> conn end,
+      get_req_header: fn conn, var_name -> [] end,
+      put_req_header: fn conn, var_name, value -> conn end,
       resp: fn conn, _, _ -> conn end,
       halt: fn conn -> conn end do
       opts =

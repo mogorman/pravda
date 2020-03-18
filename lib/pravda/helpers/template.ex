@@ -31,8 +31,8 @@ defmodule Pravda.Helpers.Template do
     %{
       "message" => %{
         "title" => "Failed",
-        "description" => "Schema not implemented",
-      },
+        "description" => "Schema not implemented"
+      }
     }
   end
 
@@ -45,8 +45,8 @@ defmodule Pravda.Helpers.Template do
       "message" => %{
         "title" => "Failed",
         "description" => "Body input did not match schema",
-        "user_info" => %{"json_value" => %{"validation_errors" => errors}},
-      },
+        "user_info" => %{"json_value" => %{"validation_errors" => errors}}
+      }
     }
   end
 
@@ -55,8 +55,8 @@ defmodule Pravda.Helpers.Template do
       "message" => %{
         "title" => "Failed",
         "description" => "Params input did not match schema",
-        "user_info" => %{"json_value" => %{"validation_errors" => errors}},
-      },
+        "user_info" => %{"json_value" => %{"validation_errors" => errors}}
+      }
     }
   end
 
@@ -65,8 +65,8 @@ defmodule Pravda.Helpers.Template do
       "message" => %{
         "title" => "Failed",
         "description" => "Server response did not match schema",
-        "user_info" => %{"json_value" => %{"validation_errors" => errors}},
-      },
+        "user_info" => %{"json_value" => %{"validation_errors" => errors}}
+      }
     }
   end
 
@@ -74,8 +74,8 @@ defmodule Pravda.Helpers.Template do
     %{
       "message" => %{
         "title" => "Failed",
-        "description" => "Pravda had an internal error",
-      },
+        "description" => "Pravda had an internal error"
+      }
     }
   end
 end

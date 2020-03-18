@@ -24,7 +24,6 @@ defmodule PravdaTest do
     assert(:body in keys)
     assert(:params in keys)
     assert(:responses in keys)
-    assert(:schema in keys)
     assert(:title in keys)
     assert(:random not in keys)
   end
@@ -72,7 +71,7 @@ defmodule PravdaTest do
           pipe_through: [:accept_json, :api],
           plug: Pravda,
           plug_opts: :no_thanks,
-          route: "/good_route/:account_id",
+          route: "/good_route/:account_id"
         }
       end do
       assert(
@@ -120,7 +119,7 @@ defmodule PravdaTest do
     assert({false, _} = Pravda.validate_response(responses, "200", "{}"))
     assert({false, _} = Pravda.validate_response(responses, "666", "{}"))
     assert({false, _} = Pravda.validate_response(responses, "200", "[{\"names\":\"shirly\", \"photoUrls\":[]}]"))
-    assert({false, _} = Pravda.validate_response(responses, "200", "[{\"names\":\"shirly\", \"photoUrls:[]}]"))
+    assert({false, _} = Pravda.validate_response(responses, "200", "[{\"names\":\"shirly\", \"photoUrls\":[]}]"))
 
     assert capture_log([level: :info], fn ->
              responses =
