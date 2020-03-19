@@ -9,6 +9,12 @@ defmodule Pravda.LoaderTest do
     assert(file == "hello world")
   end
 
+  test "can read a directory" do
+    files = Pravda.Loader.read_dir("test/")
+    Enum.map(files, fn file -> assert(is_binary(file)) end)
+    assert(Enum.any?(files, fn file -> file == "hello world" end))
+  end
+
   test "can load a file" do
     file = Pravda.Loader.read_file("test/petstore.json")
     schema = Pravda.Loader.load(file)

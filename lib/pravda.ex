@@ -35,176 +35,6 @@ defmodule Pravda do
     end)
   end
 
-  defp get_params(method, path, schema) do
-    case ExJsonSchema.Schema.get_fragment(schema, [
-           :root,
-           "paths",
-           path,
-           method,
-           "parameters"
-         ]) do
-      {:error, _} ->
-        Logger.debug("No parameters provided for #{method}: #{path}")
-        []
-
-      {:ok, params} ->
-        Enum.map(params, fn param ->
-          param
-          |> deref(schema)
-          |> deref_param(schema)
-        end)
-    end
-  end
-
-  def get_body(method, path, schema) do
-    required =
-      case ExJsonSchema.Schema.get_fragment(schema, [
-             :root,
-             "paths",
-             path,
-             method,
-             "requestBody",
-             "required"
-           ]) do
-        {:error, _} ->
-          true
-
-        {:ok, result} ->
-          result
-      end
-
-    body =
-      case ExJsonSchema.Schema.get_fragment(schema, [
-             :root,
-             "paths",
-             path,
-             method,
-             "requestBody",
-             "content",
-             "application/json",
-             "schema"
-           ]) do
-        {:error, _} ->
-          false
-
-        {:ok, result} ->
-          body = deref(result, schema)
-
-          case Map.fetch(body, "properties") do
-            {:ok, properties} ->
-              type = Map.get(body, "type")
-
-              ref_properties =
-                Enum.map(properties, fn {item, item_schema} ->
-                  {item, deref_if_possible(item_schema, schema)}
-                end)
-                |> Map.new()
-
-              %{body | "properties" => ref_properties, "type" => type}
-
-            _ ->
-              body
-          end
-      end
-
-    %{required: required, body: body}
-  end
-
-  def get_response(response_code, method, path, schema) do
-    string_response_code = "#{response_code}"
-
-    case ExJsonSchema.Schema.get_fragment(schema, [
-           :root,
-           "paths",
-           path,
-           method,
-           "responses",
-           string_response_code,
-           "content",
-           "application/json",
-           "schema"
-         ]) do
-      {:error, _} ->
-        {string_response_code, false}
-
-      {:ok, result} ->
-        response = deref_if_possible(result, schema)
-
-        deref_response =
-          case Map.get(response, "type") do
-            "object" ->
-              case Map.fetch(response, "properties") do
-                {:ok, properties} ->
-                  type = Map.get(response, "type")
-
-                  ref_properties =
-                    Enum.map(properties, fn {item, item_schema} ->
-                      {item, deref_if_possible(item_schema, schema)}
-                    end)
-                    |> Map.new()
-
-                  %{response | "properties" => ref_properties, "type" => type}
-
-                _ ->
-                  response
-              end
-
-            "array" ->
-              case Map.fetch(response, "items") do
-                {:ok, items} ->
-                  %{response | "items" => deref_if_possible(items, schema), "type" => "array"}
-
-                _ ->
-                  response
-              end
-
-            _ ->
-              response
-          end
-
-        {string_response_code, deref_response}
-    end
-  end
-
-  defp get_responses(method, path, schema) do
-    case ExJsonSchema.Schema.get_fragment(schema, [
-           :root,
-           "paths",
-           path,
-           method,
-           "responses"
-         ]) do
-      {:error, _} ->
-        %{}
-
-      {:ok, responses} ->
-        Enum.map(responses, fn {response_code, _object} ->
-          get_response(response_code, method, path, schema)
-        end)
-        |> Map.new()
-    end
-  end
-
-  def deref(item, schema) do
-    case Map.get(item, "$ref") do
-      nil ->
-        item
-
-      ref ->
-        ExJsonSchema.Schema.get_fragment!(schema, ref)
-    end
-  end
-
-  def deref_param(param, schema) do
-    case Map.get(param, "schema") do
-      nil ->
-        param
-
-      _ ->
-        %{param | "schema" => deref(param["schema"], schema)}
-    end
-  end
-
   def deref_if_possible(false, _schema) do
     false
   end
@@ -216,45 +46,6 @@ defmodule Pravda do
 
       ref ->
         ExJsonSchema.Schema.get_fragment!(schema, ref)
-    end
-    |> resolve_schema(schema)
-    |> resolve_properties(schema)
-    |> resolve_items(schema)
-  end
-
-  def resolve_schema(fragment, schema) do
-    case Map.get(fragment, "schema", %{}) |> Map.get("$ref") do
-      nil ->
-        fragment
-
-      ref ->
-        %{fragment | "schema" => ExJsonSchema.Schema.get_fragment!(schema, ref)}
-    end
-  end
-
-  def resolve_properties(fragment, schema) do
-    case Map.get(fragment, "properties") do
-      nil ->
-        fragment
-
-      properties ->
-        properties =
-          Enum.map(properties, fn {name, property} ->
-            {name, deref_if_possible(property, schema)}
-          end)
-          |> Map.new()
-
-        %{fragment | "properties" => properties}
-    end
-  end
-
-  def resolve_items(fragment, schema) do
-    case Map.get(fragment, "items") do
-      nil ->
-        fragment
-
-      items ->
-        %{fragment | "items" => deref_if_possible(items, schema)}
     end
   end
 
@@ -408,8 +199,6 @@ defmodule Pravda do
     name = Map.get(param, "name")
 
     fragment = deref_if_possible(param["schema"], spec)
-    #   Map.get(param, "schema")
-    #   |> deref_if_possible(schema.schema)
 
     required = Map.get(param, "required", true)
     type = Map.get(param, "in")
@@ -418,7 +207,7 @@ defmodule Pravda do
       case type do
         "path" ->
           Map.get(path_params, name)
-          |> fix_path_params(fragment["schema"])
+          |> fix_path_params(fragment)
 
         "query" ->
           Map.get(query_params, name)
@@ -427,8 +216,9 @@ defmodule Pravda do
           Map.get(headers, name)
       end
 
-    case ExJsonSchema.Validator.validate(
-           fragment["schema"],
+    case ExJsonSchema.Validator.validate_fragment(
+           spec,
+           param["schema"],
            input_data
          ) do
       :ok ->
