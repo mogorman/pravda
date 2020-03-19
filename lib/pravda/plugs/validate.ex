@@ -117,10 +117,11 @@ defmodule Pravda.Plugs.Validate do
 
   defp attempt_validate(path, matched_version, conn, opts) do
     conn = conn |> Plug.Conn.fetch_query_params()
+
     with {:ok, version, conn} <-
            attempt_migrate_input(path, matched_version, conn, opts, check(opts, :migrate_input)),
          true <- attempt_validate_params(path, version, conn, opts, check(opts, :validate_params)),
-           true <- attempt_validate_body(path, version, conn, opts, check(opts, :validate_body)) do
+         true <- attempt_validate_body(path, version, conn, opts, check(opts, :validate_body)) do
       attempt_validate_response(
         conn,
         opts,
@@ -162,14 +163,14 @@ defmodule Pravda.Plugs.Validate do
          conn,
          %{response_path: path, specs: specs, matched_version: matched_version} = opts,
          true
-  ) do
-
+       ) do
     conn =
       case Enum.find_index(specs["versions"], fn version -> version == matched_version end) do
-	nil ->
-	  []
-	index ->
-	  Enum.slice(specs["versions"], (index+1)..-1)
+        nil ->
+          []
+
+        index ->
+          Enum.slice(specs["versions"], (index + 1)..-1)
       end
       |> Enum.reverse()
       |> Enum.reduce(conn, fn spec_version, conn ->
@@ -213,13 +214,15 @@ defmodule Pravda.Plugs.Validate do
   defp attempt_migrate_input(path, matched_version, conn, opts, true) do
     supported_versions = opts.specs["versions"]
 
-    conn = case Enum.find_index(opts.specs["versions"],  &(&1 == matched_version))  do
-      nil ->
-	[]
-      index ->
-	Enum.slice(opts.specs["versions"], (index+1)..-1)
-    end
-    |> Enum.reduce(conn, fn schema_version, conn ->
+    conn =
+      case Enum.find_index(opts.specs["versions"], &(&1 == matched_version)) do
+        nil ->
+          []
+
+        index ->
+          Enum.slice(opts.specs["versions"], (index + 1)..-1)
+      end
+      |> Enum.reduce(conn, fn schema_version, conn ->
         callback = Map.get(opts, :migration_callback)
         callback.up(path, schema_version, conn, opts)
         callback.up(:all, schema_version, conn, opts)
@@ -228,9 +231,11 @@ defmodule Pravda.Plugs.Validate do
     last_version = List.last(supported_versions)
     spec_var = Map.get(opts, :spec_var, nil)
     spec_var_placement = Map.get(opts, :spec_var_placement)
+
     case {spec_var, spec_var_placement} do
       {nil, _} ->
-	{:ok, last_version, conn}
+        {:ok, last_version, conn}
+
       {spec_var, :header} ->
         {:ok, last_version, put_req_header(conn, spec_var, last_version)}
 
@@ -249,8 +254,9 @@ defmodule Pravda.Plugs.Validate do
            | params: Map.put(conn.params, spec_var, last_version),
              path_params: Map.put(conn.path_params, spec_var, last_version)
          }}
-      _->
-	{:ok, last_version, conn}
+
+      _ ->
+        {:ok, last_version, conn}
     end
   end
 
@@ -354,12 +360,12 @@ defmodule Pravda.Plugs.Validate do
     case Enum.any?(versions, &(&1 == version)) do
       true ->
         version
+
       false ->
         closest_input_version(versions, version)
-
-
     end
   end
+
   defp get_initial_schema_with_version(_conn, %{spec_var: nil}) do
     nil
   end
