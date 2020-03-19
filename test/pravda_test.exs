@@ -50,16 +50,19 @@ defmodule PravdaTest do
            end) =~ "No parameters provided for post: /pet"
   end
 
-  test "get responses returns empty map if none found" do
+  test "get responses returns nil if none found" do
     file = Pravda.Loader.read_file("test/no_responses.json")
 
     responses =
       Pravda.compile_paths([file])
-      |> Map.get({"DELETE", "/pet/{petId}"})
       |> Map.get("1.0.0")
-      |> Map.get(:responses)
+      |> Map.get(:schema)
+      |> Map.get("paths")
+      |> Map.get("/pet/{petId}")
+      |> Map.get("delete")
+      |> Map.get("responses")
 
-    assert(responses == %{})
+    assert(responses == nil)
   end
 
   test "phoenix_route_to_schema returns valid route" do

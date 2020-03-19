@@ -11,54 +11,18 @@ defmodule Pravda do
   """
   @spec compile_paths(list()) :: map()
   def compile_paths(raw_specs) do
-    Enum.map(raw_specs, fn raw_spec -> compile_spec(raw_spec) end)
-    |> List.flatten()
-    |> Enum.reduce(%{}, fn {{method, path, version}, item}, acc ->
-      insert =
-        case Map.get(acc, {method, path}) do
-          nil ->
-            %{version => item}
+    opts =
+      Enum.reduce(raw_specs, %{}, fn raw_spec, acc ->
+        spec = Pravda.Loader.load(raw_spec)
+        version = Map.get(spec.schema, "info", %{}) |> Map.get("version", "")
 
-          result ->
-            Map.put(result, version, item)
-        end
-
-      Map.put(acc, {method, path}, insert)
-    end)
-    |> Enum.reduce(%{}, fn {{method, path}, items}, acc ->
-      versions = Map.keys(items)
-      sorted = sort_versions(versions)
-      items = Map.put(items, "versions", sorted)
-      Map.put(acc, {method, path}, items)
-    end)
-    |> Enum.map(fn {{method, path}, specs} ->
-      versions = Map.get(specs, "versions")
-      cleaned_specs = remove_duplicates(specs, versions)
-
-      {{method, path}, cleaned_specs}
-    end)
-    |> Map.new()
-  end
-
-  defp remove_duplicates(specs, versions) do
-    {cleaned_versions, _} =
-      Enum.reduce(versions, {[], %{params: nil, body: nil, responses: nil}}, fn version,
-                                                                                {cleaned_versions, last_spec} ->
-        spec = Map.get(specs, version)
-
-        case spec.params == last_spec.params and
-               spec.body == last_spec.body and
-               spec.responses == last_spec.responses do
-          true ->
-            {cleaned_versions, last_spec}
-
-          false ->
-            {cleaned_versions ++ [version], spec}
-        end
+        acc
+        |> Map.put(version, spec)
+        #      |> Map.put("title", Map.get(spec.schema, "info", %{}) |> Map.get("title", ""))
+        |> Map.put("versions", Map.get(acc, "versions", []) ++ [version])
       end)
 
-    Map.take(specs, cleaned_versions)
-    |> Map.put("versions", cleaned_versions)
+    Map.put(opts, "versions", sort_versions(Map.get(opts, "versions")))
   end
 
   defp sort_versions(versions) do
@@ -69,86 +33,6 @@ defmodule Pravda do
         _ -> false
       end
     end)
-  end
-
-  defp compile_spec(raw_spec) do
-    spec = Pravda.Loader.load(raw_spec)
-    add_schema(spec)
-  end
-
-  defp add_schema(spec) do
-    case ExJsonSchema.Schema.get_fragment(spec, [
-           :root,
-           "paths"
-         ]) do
-      {:error, _} ->
-        Logger.error("No paths found")
-        []
-
-      {:ok, paths} ->
-        title = get_title(spec)
-        version = get_version(spec)
-
-        Enum.map(List.flatten(build_routes(paths, version)), fn path -> is_routable(path, title, spec) end)
-        |> Enum.reject(fn item -> is_nil(item) end)
-    end
-  end
-
-  defp is_routable({method, path, version}, title, schema) do
-    lower_method = String.downcase(method)
-
-    {{method, path, version},
-     %{
-       params: get_params(lower_method, path, schema),
-       body: get_body(lower_method, path, schema),
-       responses: get_responses(lower_method, path, schema),
-       title: title
-     }}
-  end
-
-  defp build_route(route_name, methods, version) do
-    Enum.map(
-      methods,
-      fn method ->
-        method = String.upcase(method)
-        {method, route_name, version}
-      end
-    )
-  end
-
-  defp build_routes(api_routes, version) do
-    Enum.map(
-      api_routes,
-      fn {route_name, route} ->
-        build_route(route_name, Map.keys(route), version)
-      end
-    )
-  end
-
-  defp get_title(schema) do
-    case ExJsonSchema.Schema.get_fragment(schema, [
-           :root,
-           "info"
-         ]) do
-      {:error, _} ->
-        false
-
-      {:ok, result} ->
-        Map.get(result, "title")
-    end
-  end
-
-  defp get_version(schema) do
-    case ExJsonSchema.Schema.get_fragment(schema, [
-           :root,
-           "info"
-         ]) do
-      {:error, _} ->
-        false
-
-      {:ok, result} ->
-        Map.get(result, "version")
-    end
   end
 
   defp get_params(method, path, schema) do
@@ -165,7 +49,9 @@ defmodule Pravda do
 
       {:ok, params} ->
         Enum.map(params, fn param ->
-          deref_if_possible(param, schema)
+          param
+          |> deref(schema)
+          |> deref_param(schema)
         end)
     end
   end
@@ -202,7 +88,7 @@ defmodule Pravda do
           false
 
         {:ok, result} ->
-          body = deref_if_possible(result, schema)
+          body = deref(result, schema)
 
           case Map.fetch(body, "properties") do
             {:ok, properties} ->
@@ -299,6 +185,26 @@ defmodule Pravda do
     end
   end
 
+  def deref(item, schema) do
+    case Map.get(item, "$ref") do
+      nil ->
+        item
+
+      ref ->
+        ExJsonSchema.Schema.get_fragment!(schema, ref)
+    end
+  end
+
+  def deref_param(param, schema) do
+    case Map.get(param, "schema") do
+      nil ->
+        param
+
+      _ ->
+        %{param | "schema" => deref(param["schema"], schema)}
+    end
+  end
+
   def deref_if_possible(false, _schema) do
     false
   end
@@ -309,10 +215,11 @@ defmodule Pravda do
         result
 
       ref ->
-        deref_if_possible(ExJsonSchema.Schema.get_fragment!(schema, ref), schema)
+        ExJsonSchema.Schema.get_fragment!(schema, ref)
     end
     |> resolve_schema(schema)
     |> resolve_properties(schema)
+    |> resolve_items(schema)
   end
 
   def resolve_schema(fragment, schema) do
@@ -338,6 +245,16 @@ defmodule Pravda do
           |> Map.new()
 
         %{fragment | "properties" => properties}
+    end
+  end
+
+  def resolve_items(fragment, schema) do
+    case Map.get(fragment, "items") do
+      nil ->
+        fragment
+
+      items ->
+        %{fragment | "items" => deref_if_possible(items, schema)}
     end
   end
 
@@ -372,38 +289,45 @@ defmodule Pravda do
   @doc ~S"""
   validate_response is used to validate the responses section for a spec, for a specific method, path, and status.
   """
-  @spec validate_response(map(), String.t() | integer(), String.t()) :: true | {false, map()}
-  def validate_response(schema, status, resp_body) do
-    resp_body = "#{resp_body}"
-
-    with response when not is_nil(response) and response != false <- Map.get(schema.responses, "#{status}"),
-         {:ok, body} <- Jason.decode(resp_body) do
-      case ExJsonSchema.Validator.validate(response, body) do
-        :ok ->
-          true
-
-        {:error, reasons} ->
-          {false, %{"body" => body, "reasons" => reasons_to_list(reasons)}}
-      end
-    else
-      nil ->
-        {false,
-         %{
-           "body" => resp_body,
-           "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}])
-         }}
-
-      false ->
-        Logger.info("Spec is not complete enough for us to validate this, or response is not json and we cant validate")
-        true
-
-      _ ->
+  @spec validate_response({String.t(), String.t()}, map(), String.t() | integer(), String.t()) :: true | {false, map()}
+  def validate_response({method, path}, spec, status, resp_body) do
+    case Jason.decode(resp_body) do
+      {:error, _} ->
         {false, %{"body" => resp_body, "reasons" => reasons_to_list([{"Invalid Json not able to decode", ""}])}}
+
+      {:ok, body_params} ->
+        case ExJsonSchema.Schema.get_fragment(spec, [
+               :root,
+               "paths",
+               path,
+               method,
+               "responses",
+               "#{status}",
+               "content",
+               "application/json",
+               "schema"
+             ]) do
+          {:error, _} ->
+            {false,
+             %{
+               "body" => resp_body,
+               "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}])
+             }}
+
+          {:ok, fragment} ->
+            case ExJsonSchema.Validator.validate_fragment(spec, fragment, body_params) do
+              :ok ->
+                true
+
+              {:error, reasons} ->
+                {false, %{"body" => body_params, "reasons" => reasons_to_list(reasons)}}
+            end
+        end
     end
   end
 
-  defp validate_body_fragment(fragment, body, required) do
-    case ExJsonSchema.Validator.validate(fragment, body) do
+  defp validate_body_fragment(fragment, body, required, spec) do
+    case ExJsonSchema.Validator.validate_fragment(spec, fragment, body) do
       :ok ->
         Logger.debug("Validated body")
         true
@@ -423,15 +347,43 @@ defmodule Pravda do
   @doc ~S"""
   validate_body is used to validate the input body for a spec, for a specific method, path.
   """
-  @spec validate_body(map(), map()) :: true | {false, map()}
-  def validate_body(schema, body_params) do
-    body = schema.body
+  @spec validate_body({String.t(), String.t()}, map(), map()) :: true | {false, map()}
+  def validate_body({method, path}, spec, body_params) do
+    required =
+      case ExJsonSchema.Schema.get_fragment(spec, [
+             :root,
+             "paths",
+             path,
+             method,
+             "requestBody",
+             "required"
+           ]) do
+        {:error, _} ->
+          true
 
-    fragment = Map.get(body, :body)
+        {:ok, result} ->
+          result
+      end
 
-    required = Map.get(body, :required, true)
+    body =
+      case ExJsonSchema.Schema.get_fragment(spec, [
+             :root,
+             "paths",
+             path,
+             method,
+             "requestBody",
+             "content",
+             "application/json",
+             "schema"
+           ]) do
+        {:error, _} ->
+          false
 
-    case {fragment, body_params, required} do
+        {:ok, body} ->
+          body
+      end
+
+    case {body, body_params, required} do
       # no body, no body provided, dont care if required
       {false, %{}, _} ->
         Logger.debug("Validated no body")
@@ -448,14 +400,14 @@ defmodule Pravda do
 
       # normal fragment
       _ ->
-        validate_body_fragment(fragment, body_params, required)
+        validate_body_fragment(body, body_params, required, spec)
     end
   end
 
-  defp validate_param(param, schema, headers, path_params, query_params) do
+  defp validate_param(param, spec, headers, path_params, query_params) do
     name = Map.get(param, "name")
 
-    fragment = Enum.find(schema.params, fn param -> param["name"] == name end)
+    fragment = deref_if_possible(param["schema"], spec)
     #   Map.get(param, "schema")
     #   |> deref_if_possible(schema.schema)
 
@@ -498,24 +450,36 @@ defmodule Pravda do
   @doc ~S"""
   validate params takes in and validates headers, path, and query parameters against the spec
   """
-  @spec validate_params(map(), map(), map(), map()) :: true | {false, map()}
-  def validate_params(schema, headers, path_params, query_params) do
-    params = schema.params
+  @spec validate_params({String.t(), String.t()}, map(), map(), map(), map()) :: true | {false, map()}
+  def validate_params({method, path}, spec, headers, path_params, query_params) do
+    case ExJsonSchema.Schema.get_fragment(spec, [
+           :root,
+           "paths",
+           path,
+           method,
+           "parameters"
+         ]) do
+      {:error, _} ->
+        Logger.debug("No parameters provided for #{method}: #{path}")
+        true
 
-    Enum.map(params, fn param ->
-      validate_param(param, schema, headers, path_params, query_params)
-    end)
-    |> Enum.reject(fn param -> param == true end)
-    |> (fn failed_params ->
-          case failed_params do
-            [] ->
-              Logger.debug("Validated Params")
-              true
+      {:ok, params} ->
+        Enum.map(params, fn param ->
+          deref_if_possible(param, spec)
+          |> validate_param(spec, headers, path_params, query_params)
+        end)
+        |> Enum.reject(fn param -> param == true end)
+        |> (fn failed_params ->
+              case failed_params do
+                [] ->
+                  Logger.debug("Validated Params")
+                  true
 
-            _ ->
-              {false, %{"reasons" => List.flatten(failed_params)}}
-          end
-        end).()
+                _ ->
+                  {false, %{"reasons" => List.flatten(failed_params)}}
+              end
+            end).()
+    end
   end
 
   defp fix_path_params(nil, %{"type" => "integer"}) do
