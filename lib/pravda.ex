@@ -1,330 +1,402 @@
 defmodule Pravda do
-  require Logger
+  @moduledoc ~S"""
+  Validates input and output according to an OpenAPI specs.
 
-  @moduledoc """
-  Documentation for Pravda.
-  """
+  Usage:
 
-  @doc ~S"""
-  Compile Paths is the function used to take a list of spec files and compile them into a
-  list of routes we can validate with.
-  """
-  @spec compile_paths(list()) :: map()
-  def compile_paths(raw_specs) do
-    opts =
-      Enum.reduce(raw_specs, %{}, fn raw_spec, acc ->
-        spec = Pravda.Loader.load(raw_spec)
-        version = Map.get(spec.schema, "info", %{}) |> Map.get("version", "")
+  Add the plug at the bottom of one or more pipelines in `router.ex`:
 
-        acc
-        |> Map.put(version, spec)
-        #      |> Map.put("title", Map.get(spec.schema, "info", %{}) |> Map.get("title", ""))
-        |> Map.put("versions", Map.get(acc, "versions", []) ++ [version])
-      end)
-
-    Map.put(opts, "versions", sort_versions(Map.get(opts, "versions")))
-  end
-
-  defp sort_versions(versions) do
-    Enum.sort(versions, fn a, b ->
-      case Version.compare(a, b) do
-        :lt -> true
-        :eq -> true
-        _ -> false
+      pipeline "api" do
+        # ...
+        plug Pravada.Plugs.Validate, specs: [ "some_spec.json" ]
       end
-    end)
+  """
+  require Logger
+  import Plug.Conn
+  alias Pravda.Helpers.Template
+  alias Pravda.{Core, Config}
+
+  @behaviour Plug
+
+  @type path :: String.t()
+  @type path_regex :: {path, Regex.t()}
+  @type open_api_spec :: map()
+
+  @impl Plug
+  @doc ~S"""
+  Init function sets all default variables and compiles the spec and paths so it can be fast. at run time.
+  """
+
+  # Convert map to keyword list if they gave us the wrong data type.
+  def init(opts) when is_map(opts) do
+    Enum.map(opts, fn {key, value} -> {key, value} end)
+    |> init()
   end
 
-  def deref_if_possible(false, _schema) do
-    false
+  @spec init(Keyword.t()) :: Keyword.t()
+  def init(opts) do
+    compiled_specs = Core.compile_paths(Config.config(:specs, opts))
+    name = Config.config(:name, opts)
+
+    opts
+    |> Keyword.update(:specs, compiled_specs, fn _ -> compiled_specs end)
+    |> Keyword.update(:name, name, fn _ -> name end)
   end
 
-  def deref_if_possible(result, schema) do
-    case Map.get(result, "$ref") do
+  @impl Plug
+  @doc ~S"""
+  Call function we attempt to validate params, then body, then our response body. and we return based on if we allow invalid input/output and the validity of the content
+  """
+  @spec call(Conn.t(), Keyword.t()) :: Conn.t()
+  def call(conn, opts) do
+    with false <- Config.config(:disable, opts),
+         {path, matched_version} <- get_schema_url_from_request(conn, opts) do
+      attempt_validate(path, matched_version, conn, opts)
+    else
+      true ->
+        conn
+
       nil ->
-        result
-
-      ref ->
-        ExJsonSchema.Schema.get_fragment!(schema, ref)
-    end
-  end
-
-  @doc ~S"""
-  phoenix_route_to_schema takes a connections current path location and method
-  and outputs a url that will match an openapi schema base definition it uses
-  the router to correctly resolve the name and order of path arguments
-  """
-  @spec phoenix_route_to_schema(Plug.Conn.t(), module()) :: {String.t(), String.t()} | {nil, nil}
-  def phoenix_route_to_schema(conn, router) do
-    case Phoenix.Router.route_info(router, conn.method, conn.request_path, conn.host) do
-      :error ->
-        Logger.warn("No implementation found for route #{conn.method}: #{conn.request_path}")
-        {nil, nil}
-
-      route ->
-        schema_url =
-          Enum.reduce(route.path_params, route.route, fn {param, _value}, path ->
-            String.replace(path, ":#{param}", "{#{param}}")
-          end)
-
-        {conn.method, schema_url}
-    end
-  end
-
-  defp reasons_to_list(reasons) do
-    Enum.map(reasons, fn {error, ref} ->
-      %{"error" => error, "ref" => ref}
-    end)
-  end
-
-  @doc ~S"""
-  validate_response is used to validate the responses section for a spec, for a specific method, path, and status.
-  """
-  @spec validate_response({String.t(), String.t()}, map(), String.t() | integer(), String.t()) :: true | {false, map()}
-  def validate_response({method, path}, spec, status, resp_body) do
-    case Jason.decode(resp_body) do
-      {:error, _} ->
-        {false, %{"body" => resp_body, "reasons" => reasons_to_list([{"Invalid Json not able to decode", ""}])}}
-
-      {:ok, body_params} ->
-        case ExJsonSchema.Schema.get_fragment(spec, [
-               :root,
-               "paths",
-               path,
-               method,
-               "responses",
-               "#{status}",
-               "content",
-               "application/json",
-               "schema"
-             ]) do
-          {:error, _} ->
-            {false,
-             %{
-               "body" => resp_body,
-               "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}])
-             }}
-
-          {:ok, fragment} ->
-            case ExJsonSchema.Validator.validate_fragment(spec, fragment, body_params) do
-              :ok ->
-                true
-
-              {:error, reasons} ->
-                {false, %{"body" => body_params, "reasons" => reasons_to_list(reasons)}}
-            end
-        end
-    end
-  end
-
-  defp validate_body_fragment(fragment, body, required, spec) do
-    case ExJsonSchema.Validator.validate_fragment(spec, fragment, body) do
-      :ok ->
-        Logger.debug("Validated body")
-        true
-
-      {:error, reasons} ->
-        case required do
+        case Config.config(:all_paths_required, opts) do
           false ->
-            Logger.debug("Did not match schema but not required #{inspect(reasons)}")
-            true
+            Logger.info("No schema found for #{url(conn)}")
+            conn
 
           _ ->
-            {false, %{"body" => body, "reasons" => reasons_to_list(reasons)}}
+            Logger.error("No schema found for #{url(conn)}")
+            error_handler(conn, opts, :not_found, {conn.method, conn.request_path, nil})
         end
     end
   end
 
-  @doc ~S"""
-  validate_body is used to validate the input body for a spec, for a specific method, path.
-  """
-  @spec validate_body({String.t(), String.t()}, map(), map()) :: true | {false, map()}
-  def validate_body({method, path}, spec, body_params) do
-    required =
-      case ExJsonSchema.Schema.get_fragment(spec, [
-             :root,
-             "paths",
-             path,
-             method,
-             "requestBody",
-             "required"
-           ]) do
-        {:error, _} ->
-          true
-
-        {:ok, result} ->
-          result
-      end
-
-    body =
-      case ExJsonSchema.Schema.get_fragment(spec, [
-             :root,
-             "paths",
-             path,
-             method,
-             "requestBody",
-             "content",
-             "application/json",
-             "schema"
-           ]) do
-        {:error, _} ->
-          false
-
-        {:ok, body} ->
-          body
-      end
-
-    case {body, body_params, required} do
-      # no body, no body provided, dont care if required
-      {false, %{}, _} ->
-        Logger.debug("Validated no body")
-        true
-
-      # no body, anything provided, not required
-      {false, _, false} ->
-        Logger.debug("Validated optional body")
-        true
-
-      # no body, something provided, required to be empty
-      {false, _, true} ->
-        {false, %{"body" => body_params, "reasons" => reasons_to_list([{"Body was provided when not allowed", ""}])}}
-
-      # normal fragment
-      _ ->
-        validate_body_fragment(body, body_params, required, spec)
-    end
-  end
-
-  defp validate_param(param, spec, headers, path_params, query_params) do
-    name = Map.get(param, "name")
-
-    fragment = deref_if_possible(param["schema"], spec)
-
-    required = Map.get(param, "required", true)
-    type = Map.get(param, "in")
-
-    input_data =
-      case type do
-        "path" ->
-          Map.get(path_params, name)
-          |> fix_path_params(fragment)
-
-        "query" ->
-          Map.get(query_params, name)
-
-        "header" ->
-          Map.get(headers, name)
-      end
-
-    case ExJsonSchema.Validator.validate_fragment(
-           spec,
-           param["schema"],
-           input_data
-         ) do
-      :ok ->
-        true
-
-      {:error, reasons} ->
-        case is_nil(input_data) and required == false do
-          true ->
-            true
-
-          false ->
-            Enum.map(reasons, fn {error, ref} ->
-              %{"input" => input_data, "name" => name, "type" => type, "error" => error, "ref" => ref}
-            end)
-        end
-    end
-  end
-
-  @doc ~S"""
-  validate params takes in and validates headers, path, and query parameters against the spec
-  """
-  @spec validate_params({String.t(), String.t()}, map(), map(), map(), map()) :: true | {false, map()}
-  def validate_params({method, path}, spec, headers, path_params, query_params) do
-    case ExJsonSchema.Schema.get_fragment(spec, [
-           :root,
-           "paths",
-           path,
-           method,
-           "parameters"
-         ]) do
-      {:error, _} ->
-        Logger.debug("No parameters provided for #{method}: #{path}")
-        true
-
-      {:ok, params} ->
-        Enum.map(params, fn param ->
-          deref_if_possible(param, spec)
-          |> validate_param(spec, headers, path_params, query_params)
-        end)
-        |> Enum.reject(fn param -> param == true end)
-        |> (fn failed_params ->
-              case failed_params do
-                [] ->
-                  Logger.debug("Validated Params")
-                  true
-
-                _ ->
-                  {false, %{"reasons" => List.flatten(failed_params)}}
-              end
-            end).()
-    end
-  end
-
-  defp fix_path_params(nil, %{"type" => "integer"}) do
+  defp attempt_callback(_errors, _conn, %{error_callback: nil}) do
     nil
   end
 
-  defp fix_path_params(param, %{"type" => "integer"}) do
-    case Integer.parse(param) do
-      {int, ""} ->
-        int
-
-      _ ->
-        param
-    end
+  defp attempt_callback(errors, conn, %{error_callback: callback} = opts) when is_function(callback) do
+    callback.(errors, conn, opts)
   end
 
-  defp fix_path_params(param, %{"type" => "number"}) do
-    case param =~ "." do
-      true ->
-        case Float.parse(param) do
-          {float, ""} ->
-            float
-
-          _ ->
-            param
-        end
-
-      false ->
-        case Integer.parse(param) do
-          {int, ""} ->
-            int
-
-          _ ->
-            param
-        end
-    end
+  defp attempt_callback(errors, conn, %{error_callback: callback} = opts) do
+    callback.error_callback(errors, conn, opts)
   end
 
-  defp fix_path_params("true", %{"type" => "boolean"}), do: true
-  defp fix_path_params("false", %{"type" => "boolean"}), do: false
-  defp fix_path_params("null", %{"type" => "null"}), do: nil
+  defp output_response(_errors, conn, _opts, true) do
+    conn
+  end
 
-  defp fix_path_params(param, _) do
-    param
+  defp output_response(errors, conn, opts, _) do
+    error_handler(conn, opts, :invalid_response, {conn.method, conn.request_path, errors})
+  end
+
+  defp attempt_validate(path, matched_version, conn, opts) do
+    conn = conn |> Plug.Conn.fetch_query_params()
+
+    with {:ok, version, conn} <-
+           attempt_migrate_input(path, matched_version, conn, opts, Config.config(:migrate_input, opts)),
+         true <- attempt_validate_params(path, version, conn, opts, Config.config(:validate_params, opts)),
+         true <- attempt_validate_body(path, version, conn, opts, Config.config(:validate_body, opts)) do
+      attempt_validate_response(
+        conn,
+        opts,
+        matched_version,
+        path,
+        Config.config(:validate_response, opts) || Config.config(:migrate_output, opts)
+      )
+    else
+      error -> error
+    end
   end
 
   @doc ~S"""
-  Returns the version of the currently loaded Pravda, in string format.
+  attempt_validate_response checks to see if we are going to attempt to validate a response before we send it out.
   """
-  @spec version() :: String.t()
-  def version do
-    Application.loaded_applications()
-    |> Enum.map(fn {app, _, ver} -> if app == :pravda, do: ver, else: nil end)
-    |> Enum.reject(&is_nil/1)
-    |> List.first()
-    |> to_string
+  @spec attempt_validate_response(Plug.Conn.t(), map(), String.t(), {String.t(), String.t()}, boolean()) ::
+          Plug.Conn.t()
+  def attempt_validate_response(conn, _opts, _matched_version, _path, false) do
+    conn
+  end
+
+  def attempt_validate_response(conn, opts, matched_version, path, _) do
+    Plug.Conn.register_before_send(conn, fn conn ->
+      opts =
+        opts
+        |> Map.put(:response_path, path)
+        |> Map.put(:matched_version, matched_version)
+
+      {conn, opts} = migrate_output(conn, opts, Config.config(:migrate_output, opts))
+      validate_response(conn, opts, Config.config(:validate_response, opts))
+    end)
+  end
+
+  defp migrate_output(conn, %{specs: specs} = opts, false) do
+    {conn, Map.put(opts, :matched_version, List.last(specs["version"]))}
+  end
+
+  defp migrate_output(
+         conn,
+         %{response_path: path, specs: specs, matched_version: matched_version} = opts,
+         true
+       ) do
+    conn =
+      case Enum.find_index(specs["versions"], fn version -> version == matched_version end) do
+        nil ->
+          []
+
+        index ->
+          Enum.slice(specs["versions"], (index + 1)..-1)
+      end
+      |> Enum.reverse()
+      |> Enum.reduce(conn, fn spec_version, conn ->
+        callback = Map.get(opts, :migration_callback)
+        callback.down(path, conn.status, spec_version, conn, opts)
+        callback.down(:all, conn.status, spec_version, conn, opts)
+      end)
+
+    {conn, opts}
+  end
+
+  defp validate_response(conn, _opts, false) do
+    conn
+  end
+
+  defp validate_response(conn, %{response_path: path, specs: specs, matched_version: version} = opts, _) do
+    case Core.validate_response(path, specs[version], conn.status, "#{conn.resp_body}") do
+      true ->
+        Logger.debug("Validated response for #{url(conn)}")
+        conn
+
+      {false, errors} ->
+        Logger.error("Invalid response for #{url(conn)} #{inspect(errors)}")
+        attempt_callback(errors, conn, opts)
+        output_response(errors, conn, opts, Config.config(:allow_invalid_output, opts))
+    end
+  end
+
+  defp input_body(_errors, _conn, _opts, true) do
+    true
+  end
+
+  defp input_body(errors, conn, opts, _) do
+    error_handler(conn, opts, :invalid_body, {conn.method, conn.request_path, errors})
+  end
+
+  defp attempt_migrate_input(_path, version, conn, _opts, false) do
+    {:ok, version, conn}
+  end
+
+  defp attempt_migrate_input(path, matched_version, conn, opts, true) do
+    supported_versions = opts.specs["versions"]
+
+    conn =
+      case Enum.find_index(opts.specs["versions"], &(&1 == matched_version)) do
+        nil ->
+          []
+
+        index ->
+          Enum.slice(opts.specs["versions"], (index + 1)..-1)
+      end
+      |> Enum.reduce(conn, fn schema_version, conn ->
+        callback = Map.get(opts, :migration_callback)
+        callback.up(path, schema_version, conn, opts)
+        callback.up(:all, schema_version, conn, opts)
+      end)
+
+    last_version = List.last(supported_versions)
+    spec_var = Map.get(opts, :spec_var, nil)
+    spec_var_placement = Map.get(opts, :spec_var_placement)
+
+    case {spec_var, spec_var_placement} do
+      {nil, _} ->
+        {:ok, last_version, conn}
+
+      {spec_var, :header} ->
+        {:ok, last_version, put_req_header(conn, spec_var, last_version)}
+
+      {spec_var, :query} ->
+        {:ok, last_version,
+         %Plug.Conn{
+           conn
+           | params: Map.put(conn.params, spec_var, last_version),
+             query_params: Map.put(conn.query_params, spec_var, last_version)
+         }}
+
+      {spec_var, :path} ->
+        {:ok, last_version,
+         %Plug.Conn{
+           conn
+           | params: Map.put(conn.params, spec_var, last_version),
+             path_params: Map.put(conn.path_params, spec_var, last_version)
+         }}
+
+      _ ->
+        {:ok, last_version, conn}
+    end
+  end
+
+  defp attempt_validate_body(_path, _version, _conn, _opts, false) do
+    true
+  end
+
+  defp attempt_validate_body(path, version, conn, opts, _) do
+    spec = opts.specs[version]
+
+    case Core.validate_body(path, spec, conn.body_params) do
+      true ->
+        Logger.debug("Validated body for #{url(conn)}")
+        true
+
+      {false, errors} ->
+        Logger.error("Invalid body for #{url(conn)} #{inspect(errors)}")
+        attempt_callback(errors, conn, opts)
+        input_body(errors, conn, opts, Config.config(:allow_invalid_input, opts))
+    end
+  end
+
+  defp input_params(_errors, _conn, _opts, true) do
+    true
+  end
+
+  defp input_params(errors, conn, opts, _) do
+    error_handler(conn, opts, :invalid_params, {conn.method, conn.request_path, errors})
+  end
+
+  defp attempt_validate_params(_path, _version, _conn, _opts, false) do
+    true
+  end
+
+  defp attempt_validate_params(path, version, conn, opts, _) do
+    spec = opts.specs[version]
+    headers = conn.req_headers |> Map.new()
+
+    case Core.validate_params(path, spec, headers, conn.path_params, conn.query_params) do
+      true ->
+        Logger.debug("Validated prams for #{url(conn)}")
+        true
+
+      {false, errors} ->
+        Logger.error("Invalid params for #{url(conn)} #{inspect(errors)}")
+        attempt_callback(errors, conn, opts)
+        input_params(errors, conn, opts, Config.config(:allow_invalid_input, opts))
+    end
+  end
+
+  defp error_handler(conn, opts, error, info) do
+    case Map.get(opts, :custom_error) do
+      nil ->
+        standard_error_handler(conn, opts, error, info)
+
+      custom ->
+        custom.error_handler(conn, opts, error, info)
+    end
+  end
+
+  defp standard_error_handler(conn, opts, error, info) do
+    message =
+      case Config.config(:explain_error, opts) do
+        true ->
+          Jason.encode!(Template.get_stock_message(error, info))
+
+        false ->
+          ""
+      end
+
+    conn
+    |> put_resp_header("content-type", "application/json")
+    |> resp(Template.get_stock_code(error), message)
+    |> halt()
+  end
+
+  defp url(conn) do
+    "#{conn.method}:#{conn.request_path}"
+  end
+
+  def closest_input_version(versions, match_version) do
+    Enum.reduce(versions, Enum.at(versions, 0), fn version, acc ->
+      case Version.compare(version, match_version) do
+        :lt ->
+          version
+
+        :eq ->
+          version
+
+        :gt ->
+          acc
+      end
+    end)
+  end
+
+  def get_closest_input_schema_with_version(nil, versions) do
+    List.first(versions)
+  end
+
+  def get_closest_input_schema_with_version(version, versions) do
+    case Enum.any?(versions, &(&1 == version)) do
+      true ->
+        version
+
+      false ->
+        closest_input_version(versions, version)
+    end
+  end
+
+  defp get_initial_schema_with_version(_conn, %{spec_var: nil}) do
+    nil
+  end
+
+  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :header}) do
+    case Plug.Conn.get_req_header(conn, var_name) do
+      [version] ->
+        version
+
+      _ ->
+        nil
+    end
+  end
+
+  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :body}) do
+    Map.get(conn.body_params, var_name)
+  end
+
+  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :query}) do
+    Map.get(conn.query_params, var_name)
+  end
+
+  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :path}) do
+    Map.get(conn.path_params, var_name)
+  end
+
+  defp get_initial_schema_with_version(_conn, _opts) do
+    nil
+  end
+
+  defp get_schema_url_from_request(conn, opts) do
+    router = (Map.get(conn, :private) || %{}) |> Map.get(:phoenix_router)
+
+    case router do
+      nil ->
+        nil
+
+      _ ->
+        {method, path} = Core.phoenix_route_to_schema(conn, router)
+
+        version =
+          get_initial_schema_with_version(conn, opts)
+          |> get_closest_input_schema_with_version(opts.specs["versions"])
+
+        path_exists =
+          opts.specs[version].schema
+          |> Map.get("paths", %{})
+          |> Map.get(path, %{})
+          |> Map.get(String.downcase(method))
+
+        case path_exists do
+          nil ->
+            nil
+
+          _ ->
+            {{String.downcase(method), path}, version}
+        end
+    end
   end
 end

@@ -7,6 +7,7 @@ defmodule Pravda.MixProject do
       version: "0.4.3",
       elixir: "~> 1.9",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       description: description(),
       package: package(),
@@ -35,6 +36,10 @@ defmodule Pravda.MixProject do
     ]
   end
 
+  # Specifies which paths to compile per environment.
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
@@ -43,7 +48,7 @@ defmodule Pravda.MixProject do
   end
 
   defp description() do
-    "OpenAPI 3 phoenix plug based validation and stand alone specs validator."
+    "OpenAPI 3 phoenix plug based validation."
   end
 
   defp package() do
@@ -58,7 +63,8 @@ defmodule Pravda.MixProject do
   defp deps do
     [
       {:phoenix, "~> 1.4.0"},
-      {:dialyxir, "~> 1.0.0-rc.7", only: [:dev, :test], runtime: false},
+      {:poison, "~> 3.1", only: [:test]},
+      {:dialyxir, "~> 1.0.0", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.10", only: [:dev, :test]},
       {:credo, "~> 1.1.0", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.21", only: :dev, runtime: false},
@@ -66,7 +72,8 @@ defmodule Pravda.MixProject do
       {:jason, "~> 1.1"},
       {:plug, ">= 1.6.0"},
       {:ex_json_schema, "~> 0.7"},
-      {:mojito, "~> 0.5.0"}
+      {:mojito, "~> 0.5.0"},
+      {:telemetry, "~> 0.4.1"}
     ]
   end
 end
