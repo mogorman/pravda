@@ -18,11 +18,16 @@ defmodule Pravda.Core do
 
         acc
         |> Map.put(version, spec)
-        #      |> Map.put("title", Map.get(spec.schema, "info", %{}) |> Map.get("title", ""))
         |> Map.put("versions", Map.get(acc, "versions", []) ++ [version])
       end)
 
-    Map.put(opts, "versions", sort_versions(Map.get(opts, "versions")))
+    case Map.fetch(opts, "versions") do
+      {:ok, versions} ->
+        Map.put(opts, "versions", sort_versions(versions))
+
+      _ ->
+        %{}
+    end
   end
 
   defp sort_versions(versions) do
@@ -82,38 +87,37 @@ defmodule Pravda.Core do
   """
   @spec validate_response({String.t(), String.t()}, map(), String.t() | integer(), String.t()) :: true | {false, map()}
   def validate_response({method, path}, spec, status, resp_body) do
-    case Jason.decode(resp_body) do
-      {:error, _} ->
-        {false, %{"body" => resp_body, "reasons" => reasons_to_list([{"Invalid Json not able to decode", ""}])}}
+    with {:ok, fragment} <-
+           ExJsonSchema.Schema.get_fragment(spec, [
+             :root,
+             "paths",
+             path,
+             method,
+             "responses",
+             "#{status}",
+             "content",
+             "application/json",
+             "schema"
+           ]),
+         {:ok, json_body} <- resp_body,
+         :ok <- ExJsonSchema.Validator.validate_fragment(spec, fragment, json_body) do
+      true
+    else
+      {:error, :invalid_reference} ->
+        {false,
+         %{
+           "body" => resp_body,
+           "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}])
+         }}
 
-      {:ok, body_params} ->
-        case ExJsonSchema.Schema.get_fragment(spec, [
-               :root,
-               "paths",
-               path,
-               method,
-               "responses",
-               "#{status}",
-               "content",
-               "application/json",
-               "schema"
-             ]) do
-          {:error, _} ->
-            {false,
-             %{
-               "body" => resp_body,
-               "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}])
-             }}
+      {:error, "not a string"} ->
+        {false, %{"reasons" => reasons_to_list([{"Not a valid utf-8 string", ""}])}}
 
-          {:ok, fragment} ->
-            case ExJsonSchema.Validator.validate_fragment(spec, fragment, body_params) do
-              :ok ->
-                true
+      {:error, "not valid json", resp_body} ->
+        {false, %{"body" => resp_body, "reasons" => reasons_to_list([{"Invalid JSON not able to decode", ""}])}}
 
-              {:error, reasons} ->
-                {false, %{"body" => body_params, "reasons" => reasons_to_list(reasons)}}
-            end
-        end
+      {:error, reasons} ->
+        {false, %{"body" => resp_body, "reasons" => reasons_to_list(reasons)}}
     end
   end
 

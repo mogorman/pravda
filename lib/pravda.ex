@@ -124,21 +124,38 @@ defmodule Pravda do
         |> Map.put(:response_path, path)
         |> Map.put(:matched_version, matched_version)
 
-      {conn, opts} = migrate_output(conn, opts, Config.config(:migrate_output, opts))
-      validate_response(conn, opts, Config.config(:validate_response, opts))
+      resp_body = get_json_resp_body(conn.resp_body)
+      {conn, opts, resp_body} = migrate_output(conn, opts, resp_body, Config.config(:migrate_output, opts))
+      validate_response(conn, opts, resp_body, Config.config(:validate_response, opts))
     end)
   end
 
-  defp migrate_output(conn, %{specs: specs} = opts, false) do
-    {conn, Map.put(opts, :matched_version, List.last(specs["version"]))}
+  defp get_json_resp_body(resp_body) do
+    with true <- String.valid?(IO.iodata_to_binary(resp_body)),
+         body <- Jason.decode(resp_body) do
+      {:ok, body}
+    else
+      false ->
+        {:error, "not a string"}
+
+      _ ->
+        {:error, "not valid json", resp_body}
+    end
+  end
+
+  defp migrate_output(conn, %{specs: specs} = opts, resp_body, false) do
+    {conn, Map.put(opts, :matched_version, List.last(specs["version"])), resp_body}
   end
 
   defp migrate_output(
          conn,
          %{response_path: path, specs: specs, matched_version: matched_version} = opts,
+         resp_body,
          true
        ) do
-    conn =
+    callback = Config.config(:migration_callback, opts)
+
+    {conn, resp_body} =
       case Enum.find_index(specs["versions"], fn version -> version == matched_version end) do
         nil ->
           []
@@ -147,21 +164,20 @@ defmodule Pravda do
           Enum.slice(specs["versions"], (index + 1)..-1)
       end
       |> Enum.reverse()
-      |> Enum.reduce(conn, fn spec_version, conn ->
-        callback = Map.get(opts, :migration_callback)
-        callback.down(path, conn.status, spec_version, conn, opts)
-        callback.down(:all, conn.status, spec_version, conn, opts)
+      |> Enum.reduce({conn, resp_body}, fn spec_version, {conn, resp_body} ->
+        {conn, resp_body} = callback.down(path, conn.status, spec_version, conn, opts, resp_body)
+        callback.down(:all, conn.status, spec_version, conn, opts, resp_body)
       end)
 
-    {conn, opts}
+    {conn, opts, resp_body}
   end
 
-  defp validate_response(conn, _opts, false) do
+  defp validate_response(conn, _opts, _resp_body, false) do
     conn
   end
 
-  defp validate_response(conn, %{response_path: path, specs: specs, matched_version: version} = opts, _) do
-    case Core.validate_response(path, specs[version], conn.status, "#{conn.resp_body}") do
+  defp validate_response(conn, %{response_path: path, specs: specs, matched_version: version} = opts, resp_body, _) do
+    case Core.validate_response(path, specs[version], conn.status, resp_body) do
       true ->
         Logger.debug("Validated response for #{url(conn)}")
         conn
@@ -187,6 +203,7 @@ defmodule Pravda do
 
   defp attempt_migrate_input(path, matched_version, conn, opts, true) do
     supported_versions = opts.specs["versions"]
+    callback = Config.config(:migration_callback, opts)
 
     conn =
       case Enum.find_index(opts.specs["versions"], &(&1 == matched_version)) do
@@ -197,14 +214,13 @@ defmodule Pravda do
           Enum.slice(opts.specs["versions"], (index + 1)..-1)
       end
       |> Enum.reduce(conn, fn schema_version, conn ->
-        callback = Map.get(opts, :migration_callback)
         callback.up(path, schema_version, conn, opts)
         callback.up(:all, schema_version, conn, opts)
       end)
 
     last_version = List.last(supported_versions)
-    spec_var = Map.get(opts, :spec_var, nil)
-    spec_var_placement = Map.get(opts, :spec_var_placement)
+    spec_var = Config.config(:spec_var, opts)
+    spec_var_placement = Config.config(:spec_var_placement, opts)
 
     case {spec_var, spec_var_placement} do
       {nil, _} ->
@@ -282,7 +298,7 @@ defmodule Pravda do
   end
 
   defp error_handler(conn, opts, error, info) do
-    case Map.get(opts, :custom_error) do
+    case Config.config(:custom_error_callback, opts) do
       nil ->
         standard_error_handler(conn, opts, error, info)
 
