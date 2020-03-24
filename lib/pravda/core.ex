@@ -21,12 +21,13 @@ defmodule Pravda.Core do
         |> Map.put("versions", Map.get(acc, "versions", []) ++ [version])
       end)
 
+    # if we fail to find any versions we return nothing
     case Map.fetch(opts, "versions") do
       {:ok, versions} ->
         Map.put(opts, "versions", sort_versions(versions))
 
       _ ->
-        %{}
+        nil
     end
   end
 
@@ -99,25 +100,28 @@ defmodule Pravda.Core do
              "application/json",
              "schema"
            ]),
-         {:ok, json_body} <- resp_body,
+         {:resp_body, {:ok, json_body}} <- {:resp_body, resp_body},
          :ok <- ExJsonSchema.Validator.validate_fragment(spec, fragment, json_body) do
       true
     else
       {:error, :invalid_reference} ->
+        {_, body} = resp_body
+
         {false,
          %{
-           "body" => resp_body,
+           "body" => body,
            "reasons" => reasons_to_list([{"response for status code, #{status}, not found in spec", ""}])
          }}
 
       {:error, "not a string"} ->
         {false, %{"reasons" => reasons_to_list([{"Not a valid utf-8 string", ""}])}}
 
-      {:error, "not valid json", resp_body} ->
+      {:resp_body, {:error, resp_body}} ->
         {false, %{"body" => resp_body, "reasons" => reasons_to_list([{"Invalid JSON not able to decode", ""}])}}
 
       {:error, reasons} ->
-        {false, %{"body" => resp_body, "reasons" => reasons_to_list(reasons)}}
+        {_, json} = resp_body
+        {false, %{"body" => json, "reasons" => reasons_to_list(reasons)}}
     end
   end
 
@@ -318,17 +322,5 @@ defmodule Pravda.Core do
 
   defp fix_path_params(param, _) do
     param
-  end
-
-  @doc ~S"""
-  Returns the version of the currently loaded Pravda, in string format.
-  """
-  @spec version() :: String.t()
-  def version do
-    Application.loaded_applications()
-    |> Enum.map(fn {app, _, ver} -> if app == :pravda, do: ver, else: nil end)
-    |> Enum.reject(&is_nil/1)
-    |> List.first()
-    |> to_string
   end
 end

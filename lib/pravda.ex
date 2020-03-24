@@ -35,7 +35,7 @@ defmodule Pravda do
 
   @spec init(Keyword.t()) :: Keyword.t()
   def init(opts) do
-    compiled_specs = Core.compile_paths(Config.config(:specs, opts))
+    compiled_specs = Core.compile_paths(Config.config(:specs, opts)) || %{}
     name = Config.config(:name, opts)
 
     opts
@@ -49,11 +49,12 @@ defmodule Pravda do
   """
   @spec call(Conn.t(), Keyword.t()) :: Conn.t()
   def call(conn, opts) do
-    with false <- Config.config(:disable, opts),
+    with true <- Config.config(:enable, opts),
+         conn <- Plug.Conn.fetch_query_params(conn),
          {path, matched_version} <- get_schema_url_from_request(conn, opts) do
       attempt_validate(path, matched_version, conn, opts)
     else
-      true ->
+      false ->
         conn
 
       nil ->
@@ -69,15 +70,15 @@ defmodule Pravda do
     end
   end
 
-  defp attempt_callback(_errors, _conn, %{error_callback: nil}) do
+  defp attempt_callback(_errors, _conn, _opts, nil) do
     nil
   end
 
-  defp attempt_callback(errors, conn, %{error_callback: callback} = opts) when is_function(callback) do
+  defp attempt_callback(errors, conn, opts, callback) when is_function(callback) do
     callback.(errors, conn, opts)
   end
 
-  defp attempt_callback(errors, conn, %{error_callback: callback} = opts) do
+  defp attempt_callback(errors, conn, opts, callback) do
     callback.error_callback(errors, conn, opts)
   end
 
@@ -121,10 +122,11 @@ defmodule Pravda do
     Plug.Conn.register_before_send(conn, fn conn ->
       opts =
         opts
-        |> Map.put(:response_path, path)
-        |> Map.put(:matched_version, matched_version)
+        |> Keyword.put(:response_path, path)
+        |> Keyword.put(:matched_version, matched_version)
 
       resp_body = get_json_resp_body(conn.resp_body)
+
       {conn, opts, resp_body} = migrate_output(conn, opts, resp_body, Config.config(:migrate_output, opts))
       validate_response(conn, opts, resp_body, Config.config(:validate_response, opts))
     end)
@@ -132,27 +134,27 @@ defmodule Pravda do
 
   defp get_json_resp_body(resp_body) do
     with true <- String.valid?(IO.iodata_to_binary(resp_body)),
-         body <- Jason.decode(resp_body) do
+         {:ok, body} <- Jason.decode(resp_body) do
       {:ok, body}
     else
       false ->
         {:error, "not a string"}
 
       _ ->
-        {:error, "not valid json", resp_body}
+        {:error, resp_body}
     end
   end
 
-  defp migrate_output(conn, %{specs: specs} = opts, resp_body, false) do
-    {conn, Map.put(opts, :matched_version, List.last(specs["version"])), resp_body}
+  defp migrate_output(conn, opts, resp_body, false) do
+    specs = Config.config(:specs, opts)
+    opts = Keyword.put(opts, :matched_version, List.last(specs["versions"]))
+    {conn, opts, resp_body}
   end
 
-  defp migrate_output(
-         conn,
-         %{response_path: path, specs: specs, matched_version: matched_version} = opts,
-         resp_body,
-         true
-       ) do
+  defp migrate_output(conn, opts, resp_body, true) do
+    path = Keyword.get(opts, :response_path)
+    matched_version = Keyword.get(opts, :matched_version)
+    specs = Config.config(:specs, opts)
     callback = Config.config(:migration_callback, opts)
 
     {conn, resp_body} =
@@ -176,15 +178,19 @@ defmodule Pravda do
     conn
   end
 
-  defp validate_response(conn, %{response_path: path, specs: specs, matched_version: version} = opts, resp_body, _) do
-    case Core.validate_response(path, specs[version], conn.status, resp_body) do
+  defp validate_response(conn, opts, resp_body, _) do
+    path = Keyword.get(opts, :response_path)
+    matched_version = Keyword.get(opts, :matched_version)
+    specs = Config.config(:specs, opts)
+
+    case Core.validate_response(path, specs[matched_version], conn.status, resp_body) do
       true ->
         Logger.debug("Validated response for #{url(conn)}")
         conn
 
       {false, errors} ->
         Logger.error("Invalid response for #{url(conn)} #{inspect(errors)}")
-        attempt_callback(errors, conn, opts)
+        attempt_callback(errors, conn, opts, Config.config(:error_callback, opts))
         output_response(errors, conn, opts, Config.config(:allow_invalid_output, opts))
     end
   end
@@ -202,16 +208,17 @@ defmodule Pravda do
   end
 
   defp attempt_migrate_input(path, matched_version, conn, opts, true) do
-    supported_versions = opts.specs["versions"]
+    specs = Config.config(:specs, opts)
+    supported_versions = specs["versions"]
     callback = Config.config(:migration_callback, opts)
 
     conn =
-      case Enum.find_index(opts.specs["versions"], &(&1 == matched_version)) do
+      case Enum.find_index(supported_versions, &(&1 == matched_version)) do
         nil ->
           []
 
         index ->
-          Enum.slice(opts.specs["versions"], (index + 1)..-1)
+          Enum.slice(supported_versions, (index + 1)..-1)
       end
       |> Enum.reduce(conn, fn schema_version, conn ->
         callback.up(path, schema_version, conn, opts)
@@ -255,7 +262,7 @@ defmodule Pravda do
   end
 
   defp attempt_validate_body(path, version, conn, opts, _) do
-    spec = opts.specs[version]
+    spec = Config.config(:specs, opts) |> Map.get(version)
 
     case Core.validate_body(path, spec, conn.body_params) do
       true ->
@@ -264,7 +271,7 @@ defmodule Pravda do
 
       {false, errors} ->
         Logger.error("Invalid body for #{url(conn)} #{inspect(errors)}")
-        attempt_callback(errors, conn, opts)
+        attempt_callback(errors, conn, opts, Config.config(:error_callback, opts))
         input_body(errors, conn, opts, Config.config(:allow_invalid_input, opts))
     end
   end
@@ -282,7 +289,7 @@ defmodule Pravda do
   end
 
   defp attempt_validate_params(path, version, conn, opts, _) do
-    spec = opts.specs[version]
+    spec = Config.config(:specs, opts) |> Map.get(version)
     headers = conn.req_headers |> Map.new()
 
     case Core.validate_params(path, spec, headers, conn.path_params, conn.query_params) do
@@ -292,7 +299,7 @@ defmodule Pravda do
 
       {false, errors} ->
         Logger.error("Invalid params for #{url(conn)} #{inspect(errors)}")
-        attempt_callback(errors, conn, opts)
+        attempt_callback(errors, conn, opts, Config.config(:error_callback, opts))
         input_params(errors, conn, opts, Config.config(:allow_invalid_input, opts))
     end
   end
@@ -342,6 +349,10 @@ defmodule Pravda do
     end)
   end
 
+  def get_closest_input_schema_with_version(_version, nil) do
+    nil
+  end
+
   def get_closest_input_schema_with_version(nil, versions) do
     List.first(versions)
   end
@@ -356,11 +367,11 @@ defmodule Pravda do
     end
   end
 
-  defp get_initial_schema_with_version(_conn, %{spec_var: nil}) do
+  defp get_initial_schema_with_version(_conn, nil, _) do
     nil
   end
 
-  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :header}) do
+  defp get_initial_schema_with_version(conn, var_name, :header) do
     case Plug.Conn.get_req_header(conn, var_name) do
       [version] ->
         version
@@ -370,49 +381,58 @@ defmodule Pravda do
     end
   end
 
-  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :body}) do
+  defp get_initial_schema_with_version(conn, var_name, :body) do
     Map.get(conn.body_params, var_name)
   end
 
-  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :query}) do
+  defp get_initial_schema_with_version(conn, var_name, :query) do
     Map.get(conn.query_params, var_name)
   end
 
-  defp get_initial_schema_with_version(conn, %{spec_var: var_name, spec_var_placement: :path}) do
+  defp get_initial_schema_with_version(conn, var_name, :path) do
     Map.get(conn.path_params, var_name)
   end
 
-  defp get_initial_schema_with_version(_conn, _opts) do
+  defp get_initial_schema_with_version(_conn, _var_name, _placement) do
     nil
   end
 
   defp get_schema_url_from_request(conn, opts) do
-    router = (Map.get(conn, :private) || %{}) |> Map.get(:phoenix_router)
+    with router when not is_nil(router) <- (Map.get(conn, :private) || %{}) |> Map.get(:phoenix_router),
+         spec_var <- Config.config(:spec_var, opts),
+         placement <- Config.config(:spec_var_placement, opts),
+         specs <- Config.config(:specs, opts),
+         version <- get_initial_schema_with_version(conn, spec_var, placement),
+         version when not is_nil(version) <- get_closest_input_schema_with_version(version, Map.get(specs, "versions")) do
+      {method, path} = Core.phoenix_route_to_schema(conn, router)
 
-    case router do
-      nil ->
-        nil
+      path_exists =
+        specs[version].schema
+        |> Map.get("paths", %{})
+        |> Map.get(path, %{})
+        |> Map.get(String.downcase(method))
 
-      _ ->
-        {method, path} = Core.phoenix_route_to_schema(conn, router)
+      case path_exists do
+        nil ->
+          nil
 
-        version =
-          get_initial_schema_with_version(conn, opts)
-          |> get_closest_input_schema_with_version(opts.specs["versions"])
-
-        path_exists =
-          opts.specs[version].schema
-          |> Map.get("paths", %{})
-          |> Map.get(path, %{})
-          |> Map.get(String.downcase(method))
-
-        case path_exists do
-          nil ->
-            nil
-
-          _ ->
-            {{String.downcase(method), path}, version}
-        end
+        _ ->
+          {{String.downcase(method), path}, version}
+      end
+    else
+      _ -> nil
     end
+  end
+
+  @doc ~S"""
+  Returns the version of the currently loaded Pravda, in string format.
+  """
+  @spec version() :: String.t()
+  def version do
+    Application.loaded_applications()
+    |> Enum.map(fn {app, _, ver} -> if app == :pravda, do: ver, else: nil end)
+    |> Enum.reject(&is_nil/1)
+    |> List.first()
+    |> to_string
   end
 end
