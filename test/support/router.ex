@@ -1,6 +1,7 @@
 defmodule PravdaTest.Router do
   use Phoenix.Router
   require Pravda.Loader
+  alias PravdaTest.{PetsController, PravdaCustom, PravdaError, PravdaMigrations}
 
   pipeline :api do
     plug(:accepts, ["json"])
@@ -8,9 +9,9 @@ defmodule PravdaTest.Router do
     plug(Pravda,
       all_paths_required: true,
       spec_var: "spec-version",
-      error_callback: PravdaTest.Pravda,
-      custom_error_callback: PravdaTest.PravdaCustom,
-      migration_callback: PravdaTest.PravdaMigrations,
+      error_callback: PravdaError,
+      custom_error_callback: PravdaCustom,
+      migration_callback: PravdaMigrations,
       specs: Pravda.Loader.read_dir("test/specs")
     )
   end
@@ -23,8 +24,8 @@ defmodule PravdaTest.Router do
       all_paths_required: true,
       spec_var: "spec-version",
       spec_var_placement: :body,
-      error_callback: PravdaTest.Pravda,
-      migration_callback: PravdaTest.PravdaMigrations,
+      error_callback: PravdaError,
+      migration_callback: PravdaMigrations,
       validate_response: false,
       specs: Pravda.Loader.read_dir("test/specs")
     )
@@ -38,7 +39,7 @@ defmodule PravdaTest.Router do
       all_paths_required: true,
       spec_var: "spec-version",
       validate_response: false,
-      error_callback: PravdaTest.Pravda,
+      error_callback: PravdaError,
       migrate_input: false,
       migrate_output: false,
       specs: Pravda.Loader.read_dir("test/specs")
@@ -53,7 +54,7 @@ defmodule PravdaTest.Router do
       all_paths_required: true,
       spec_var: "spec-version",
       spec_var_placement: :query,
-      error_callback: PravdaTest.Pravda,
+      error_callback: PravdaError,
       migrate_input: false,
       migrate_output: false,
       specs: Pravda.Loader.read_dir("test/specs")
@@ -67,7 +68,7 @@ defmodule PravdaTest.Router do
       name: :function,
       all_paths_required: true,
       spec_var: "spec-version",
-      migration_callback: PravdaTest.PravdaMigrations,
+      migration_callback: PravdaMigrations,
       specs: Pravda.Loader.read_dir("test/specs")
     )
   end
@@ -80,7 +81,7 @@ defmodule PravdaTest.Router do
       allow_invalid_input: true,
       all_paths_required: true,
       spec_var: "spec-version",
-      migration_callback: PravdaTest.PravdaMigrations,
+      migration_callback: PravdaMigrations,
       specs: Pravda.Loader.read_dir("test/specs")
     )
   end
@@ -118,47 +119,47 @@ defmodule PravdaTest.Router do
     )
   end
 
-  scope "/pravda", PravdaTest do
+  scope "/pravda" do
     pipe_through(:api)
     post("/pets", PetsController, :index)
   end
 
-  scope "/pravda_disabled", PravdaTest do
+  scope "/pravda_disabled" do
     pipe_through(:api_disabled)
     get("/pets", PetsController, :index)
   end
 
-  scope "/pravda_disabled_all", PravdaTest do
+  scope "/pravda_disabled_all" do
     pipe_through(:api_disabled_all)
     get("/pets", PetsController, :index)
   end
 
-  scope "/pravda_disabled_path_required", PravdaTest do
+  scope "/pravda_disabled_path_required" do
     pipe_through(:api_disabled_path_required)
     get("/pets", PetsController, :index)
   end
 
-  scope "/pravda_function", PravdaTest do
+  scope "/pravda_function" do
     pipe_through(:api_function)
     post("/pets", PetsController, :index)
   end
 
-  scope "/pravda_invalid", PravdaTest do
+  scope "/pravda_invalid" do
     pipe_through(:api_invalid)
     post("/pets", PetsController, :index)
   end
 
-  scope "/pravda_skip", PravdaTest do
+  scope "/pravda_skip" do
     pipe_through(:api_skip)
     post("/pets", PetsController, :index)
   end
 
-  scope "/pravda_dont_migrate", PravdaTest do
+  scope "/pravda_dont_migrate" do
     pipe_through(:api_dont_migrate)
     post("/pets", PetsController, :index)
   end
 
-  scope "/pravda_dont_validate_output", PravdaTest do
+  scope "/pravda_dont_validate_output" do
     pipe_through(:api_dont_validate_output)
     post("/pets", PetsController, :index)
   end

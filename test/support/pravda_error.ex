@@ -1,4 +1,4 @@
-defmodule PravdaTest.Pravda do
+defmodule PravdaTest.PravdaError do
   @moduledoc """
   A dummy file to test user error callbacks  
   """
