@@ -50,6 +50,7 @@ defmodule Pravda do
   @spec call(Conn.t(), Keyword.t()) :: Conn.t()
   def call(conn, opts) do
     with true <- Config.config(:enable, opts),
+         :ok <- :telemetry.execute([:pravda, :request, :start], %{}, %{name: Config.config(:name, opts)}),
          conn <- Plug.Conn.fetch_query_params(conn),
          {path, matched_version} <- get_schema_url_from_request(conn, opts) do
       attempt_validate(path, matched_version, conn, opts)
@@ -114,7 +115,8 @@ defmodule Pravda do
   """
   @spec attempt_validate_response(Plug.Conn.t(), map(), String.t(), {String.t(), String.t()}, boolean()) ::
           Plug.Conn.t()
-  def attempt_validate_response(conn, _opts, _matched_version, _path, false) do
+  def attempt_validate_response(conn, opts, _matched_version, _path, false) do
+    :telemetry.execute([:pravda, :request, :complete], %{}, %{name: Config.config(:name, opts)})
     conn
   end
 
@@ -167,6 +169,13 @@ defmodule Pravda do
       end
       |> Enum.reverse()
       |> Enum.reduce({conn, resp_body}, fn spec_version, {conn, resp_body} ->
+        :telemetry.execute([:pravda, :request, :migrate, :down], %{}, %{
+          name: Config.config(:name, opts),
+          path: path,
+          start_version: matched_version,
+          version: spec_version
+        })
+
         {conn, resp_body} = callback.down(path, conn.status, spec_version, conn, opts, resp_body)
         callback.down(:all, conn.status, spec_version, conn, opts, resp_body)
       end)
@@ -174,23 +183,38 @@ defmodule Pravda do
     {conn, opts, resp_body}
   end
 
-  defp validate_response(conn, _opts, _resp_body, false) do
+  defp validate_response(conn, opts, _resp_body, false) do
+    :telemetry.execute([:pravda, :request, :complete], %{}, %{name: Config.config(:name, opts)})
     conn
   end
 
   defp validate_response(conn, opts, resp_body, _) do
     path = Keyword.get(opts, :response_path)
-    matched_version = Keyword.get(opts, :matched_version)
+    version = Keyword.get(opts, :matched_version)
     specs = Config.config(:specs, opts)
 
-    case Core.validate_response(path, specs[matched_version], conn.status, resp_body) do
+    case Core.validate_response(path, specs[version], conn.status, resp_body) do
       true ->
+        :telemetry.execute([:pravda, :request, :response, :valid], %{}, %{
+          name: Config.config(:name, opts),
+          path: path,
+          version: version
+        })
+
+        :telemetry.execute([:pravda, :request, :complete], %{}, %{name: Config.config(:name, opts)})
         Logger.debug("Validated response for #{url(conn)}")
         conn
 
       {false, errors} ->
+        :telemetry.execute([:pravda, :request, :response, :invalid], %{}, %{
+          name: Config.config(:name, opts),
+          path: path,
+          version: version
+        })
+
         Logger.error("Invalid response for #{url(conn)} #{inspect(errors)}")
         attempt_callback(errors, conn, opts, Config.config(:error_callback, opts))
+        :telemetry.execute([:pravda, :request, :complete], %{}, %{name: Config.config(:name, opts)})
         output_response(errors, conn, opts, Config.config(:allow_invalid_output, opts))
     end
   end
@@ -221,6 +245,13 @@ defmodule Pravda do
           Enum.slice(supported_versions, (index + 1)..-1)
       end
       |> Enum.reduce(conn, fn schema_version, conn ->
+        :telemetry.execute([:pravda, :request, :migrate, :up], %{}, %{
+          name: Config.config(:name, opts),
+          path: path,
+          start_version: matched_version,
+          version: schema_version
+        })
+
         callback.up(path, schema_version, conn, opts)
         callback.up(:all, schema_version, conn, opts)
       end)
@@ -266,10 +297,22 @@ defmodule Pravda do
 
     case Core.validate_body(path, spec, conn.body_params) do
       true ->
+        :telemetry.execute([:pravda, :request, :body, :valid], %{}, %{
+          name: Config.config(:name, opts),
+          path: path,
+          version: version
+        })
+
         Logger.debug("Validated body for #{url(conn)}")
         true
 
       {false, errors} ->
+        :telemetry.execute([:pravda, :request, :body, :invalid], %{}, %{
+          name: Config.config(:name, opts),
+          path: path,
+          version: version
+        })
+
         Logger.error("Invalid body for #{url(conn)} #{inspect(errors)}")
         attempt_callback(errors, conn, opts, Config.config(:error_callback, opts))
         input_body(errors, conn, opts, Config.config(:allow_invalid_input, opts))
@@ -294,10 +337,22 @@ defmodule Pravda do
 
     case Core.validate_params(path, spec, headers, conn.path_params, conn.query_params) do
       true ->
+        :telemetry.execute([:pravda, :request, :params, :valid], %{}, %{
+          name: Config.config(:name, opts),
+          path: path,
+          version: version
+        })
+
         Logger.debug("Validated prams for #{url(conn)}")
         true
 
       {false, errors} ->
+        :telemetry.execute([:pravda, :request, :params, :invalid], %{}, %{
+          name: Config.config(:name, opts),
+          path: path,
+          version: version
+        })
+
         Logger.error("Invalid params for #{url(conn)} #{inspect(errors)}")
         attempt_callback(errors, conn, opts, Config.config(:error_callback, opts))
         input_params(errors, conn, opts, Config.config(:allow_invalid_input, opts))
