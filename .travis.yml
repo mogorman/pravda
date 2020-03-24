@@ -14,7 +14,7 @@ before_script:
 script:
   - mix deps.compile
   - mix do clean, compile --force --warning-as-errors
-  - mix fformat --check-formatted
+  - mix format --check-formatted
   - mix credo --strict
   - mix test
   - mix coveralls.travis --pro
