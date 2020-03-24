@@ -1,4 +1,8 @@
 defmodule PravdaTest.PravdaMigrations do
+  @moduledoc """
+  An example migration file
+  """
+
   alias Plug.Conn
   # UP
   def up(:all, "2.0.0", conn, _opts) do

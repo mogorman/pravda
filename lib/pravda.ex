@@ -14,7 +14,7 @@ defmodule Pravda do
   require Logger
   import Plug.Conn
   alias Pravda.Helpers.Template
-  alias Pravda.{Core, Config}
+  alias Pravda.{Config, Core}
 
   @behaviour Plug
 
