@@ -1,6 +1,10 @@
 defmodule Pravda.Core do
   require Logger
 
+  # TODO: remove when ex_json_schema updates its specs correctly
+  @dialyzer {:nowarn_function, validate_body_fragment: 4}
+  @dialyzer {:nowarn_function, validate_body: 3}
+
   @moduledoc """
   Documentation for Pravda core.
   """
