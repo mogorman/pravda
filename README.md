@@ -35,7 +35,7 @@ Metrics are implemented via telemetry.
 
 Add the following to the `deps` block in `mix.exs`:
 
-    {:pravda, "~>1.0.0"}
+    {:pravda, "~>0.6.0"}
 
 ## Configuration
 
@@ -59,9 +59,10 @@ The following configuration options are supported:
 * `:validate_response` validate output response to the user, Default: `true`
 * `:allow_invalid_input` allow input to pass even if it fails validation, Default: `false`
 * `:allow_invalid_output` allow output to pass even if it fails validation, Default: `false`
-
 * `:migrate_input` migrate input from current spec to latest input spec, Default: `true`
 * `:migrate_output` migrate output from current spec to client requested spec, Default: `true`
+
+# TODO
 * `:fallback_to_latest` migrate output to latest if true, otherwise fallback to oldest supported version, Default: `true`
 
 ## Metrics
