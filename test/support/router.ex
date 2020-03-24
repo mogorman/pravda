@@ -9,6 +9,7 @@ defmodule PravdaTest.Router do
       all_paths_required: true,
       spec_var: "spec-version",
       error_callback: PravdaTest.Pravda,
+      custom_error_callback: PravdaTest.PravdaCustom,
       migration_callback: PravdaTest.PravdaMigrations,
       specs: Pravda.Loader.read_dir("test/specs")
     )

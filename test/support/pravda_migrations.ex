@@ -12,14 +12,14 @@ defmodule PravdaTest.PravdaMigrations do
   end
 
   # DOWN
-  def down({"get", "/pravda/pets"}, 200, "2.0.0", conn, _opts, {:ok, json_body}) do
-    json = Map.put(json_body, "new_key", true)
+  def down({"post", "/pravda/pets"}, 200, "2.0.0", conn, _opts, {:ok, json_body}) do
+    json = Map.put(json_body, "old_key", true)
     conn = Map.put(conn, :resp_body, Jason.encode!(json))
-    {conn, json}
+    {conn, {:ok, json}}
   end
 
   # CATCHALL FOR DOWN
-  def down(_path, _status, _version, conn, _opts, json) do
-    {conn, json}
+  def down(_path, _status, _version, conn, _opts, json_tuple) do
+    {conn, json_tuple}
   end
 end

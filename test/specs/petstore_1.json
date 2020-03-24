@@ -79,12 +79,17 @@
 		"schema": {
 		  "type": "object",
 		  "required": [
-		    "pravda_pet"
+		    "pravda_pet",
+		    "old_key"
 		  ],
 		  "properties": {
 		    "pravda_pet": {
 		      "type": "string",
 		      "example": "fdsa"
+		    },
+		    "old_key": {
+		      "type": "boolean",
+		      "example": true
 		    }
 		  }
 		}

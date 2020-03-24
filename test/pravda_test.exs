@@ -63,7 +63,19 @@ defmodule PravdaTest do
       |> put_req_header("doggie", "im a dawg")
       |> PravdaTest.Router.call([])
 
-    assert(Poison.decode!(conn.resp_body) == %{"pravda_pet" => "asdf"})
+    assert(Poison.decode!(conn.resp_body) == %{"pravda_pet" => "asdf", "old_key" => true})
+    assert conn.status == 200
+  end
+
+  test "test pravda validation with down migration" do
+    conn =
+      conn(:post, "/pravda/pets", %{"name" => "a dog name", "photoUrls" => []})
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("spec-version", "1.0.0")
+      |> put_req_header("doggie", "im a dawg")
+      |> PravdaTest.Router.call([])
+
+    assert(Poison.decode!(conn.resp_body) == %{"pravda_pet" => "asdf", "old_key" => true})
     assert conn.status == 200
   end
 
@@ -89,6 +101,16 @@ defmodule PravdaTest do
   test "test pravda validation fails response" do
     conn =
       conn(:post, "/pravda/pets", %{"name" => "FAIL", "photoUrls" => []})
+      |> put_req_header("doggie", "im a dawg")
+      |> put_req_header("content-type", "application/json")
+      |> PravdaTest.Router.call([])
+
+    assert conn.status == 500
+  end
+
+  test "test pravda validation fails when cant find status code" do
+    conn =
+      conn(:post, "/pravda/pets", %{"name" => "FAIL2", "photoUrls" => []})
       |> put_req_header("doggie", "im a dawg")
       |> put_req_header("content-type", "application/json")
       |> PravdaTest.Router.call([])
