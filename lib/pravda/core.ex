@@ -27,7 +27,7 @@ defmodule Pravda.Core do
         Map.put(opts, "versions", sort_versions(versions))
 
       _ ->
-        nil
+        %{}
     end
   end
 
@@ -86,7 +86,12 @@ defmodule Pravda.Core do
   @doc ~S"""
   validate_response is used to validate the responses section for a spec, for a specific method, path, and status.
   """
-  @spec validate_response({String.t(), String.t()}, map(), String.t() | integer(), String.t()) :: true | {false, map()}
+  @spec validate_response(
+          {String.t(), String.t()},
+          ExJsonSchema.Schema.Root.t(),
+          String.t() | integer(),
+          {atom(), String.t() | map()}
+        ) :: true | {false, %{binary() => map() | String.t() | list()}}
   def validate_response({method, path}, spec, status, resp_body) do
     with {:ok, fragment} <-
            ExJsonSchema.Schema.get_fragment(spec, [

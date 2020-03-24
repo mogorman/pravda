@@ -28,14 +28,14 @@ defmodule Pravda do
   """
 
   # Convert map to keyword list if they gave us the wrong data type.
+  @spec init(Keyword.t() | map()) :: Keyword.t()
   def init(opts) when is_map(opts) do
     Enum.map(opts, fn {key, value} -> {key, value} end)
     |> init()
   end
 
-  @spec init(Keyword.t()) :: Keyword.t()
   def init(opts) do
-    compiled_specs = Core.compile_paths(Config.config(:specs, opts)) || %{}
+    compiled_specs = Core.compile_paths(Config.config(:specs, opts))
     name = Config.config(:name, opts)
 
     opts
@@ -47,7 +47,7 @@ defmodule Pravda do
   @doc ~S"""
   Call function we attempt to validate params, then body, then our response body. and we return based on if we allow invalid input/output and the validity of the content
   """
-  @spec call(Conn.t(), Keyword.t()) :: Conn.t()
+  @spec call(Plug.Conn.t(), Keyword.t()) :: Plug.Conn.t()
   def call(conn, opts) do
     with true <- Config.config(:enable, opts),
          :ok <- :telemetry.execute([:pravda, :request, :start], %{}, %{name: Config.config(:name, opts)}),
@@ -113,7 +113,7 @@ defmodule Pravda do
   @doc ~S"""
   attempt_validate_response checks to see if we are going to attempt to validate a response before we send it out.
   """
-  @spec attempt_validate_response(Plug.Conn.t(), map(), String.t(), {String.t(), String.t()}, boolean()) ::
+  @spec attempt_validate_response(Plug.Conn.t(), Keyword.t(), String.t(), {String.t(), String.t()}, boolean()) ::
           Plug.Conn.t()
   def attempt_validate_response(conn, opts, _matched_version, _path, false) do
     :telemetry.execute([:pravda, :request, :complete], %{}, %{name: Config.config(:name, opts)})
@@ -452,6 +452,7 @@ defmodule Pravda do
     nil
   end
 
+  @spec get_schema_url_from_request(Plug.Conn.t(), Keyword.t()) :: {{String.t(), String.t()}, String.t()} | nil
   defp get_schema_url_from_request(conn, opts) do
     with router when not is_nil(router) <- (Map.get(conn, :private) || %{}) |> Map.get(:phoenix_router),
          spec_var <- Config.config(:spec_var, opts),
