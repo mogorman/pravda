@@ -252,7 +252,7 @@ defmodule Pravda do
           version: schema_version
         })
 
-        callback.up(path, schema_version, conn, opts)
+        conn = callback.up(path, schema_version, conn, opts)
         callback.up(:all, schema_version, conn, opts)
       end)
 

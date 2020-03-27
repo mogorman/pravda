@@ -4,7 +4,7 @@ defmodule Pravda.MixProject do
   def project do
     [
       app: :pravda,
-      version: "0.6.3",
+      version: "0.6.4",
       elixir: "~> 1.9",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
