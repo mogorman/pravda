@@ -62,7 +62,7 @@ defmodule Pravda.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:phoenix, "~> 1.4.0"},
+      {:phoenix, "~> 1.5.3"},
       {:poison, "~> 3.1", only: [:test]},
       {:dialyxir, "~> 1.0.0", only: [:dev, :test], runtime: false},
       {:excoveralls, "~> 0.10", only: [:dev, :test]},
