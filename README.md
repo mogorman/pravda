@@ -10,10 +10,9 @@
 # Pravda: An OpenAPI 3.0 validator plug for phoenix.
 <!-- end_header -->
 Pravda is a plug for phoenix to validate input and output against a provided spec.
-It also supports having multiple versions of the same spec lodaded at one time, and the
+It also supports having multiple versions of the same spec loaded at one time, and the
 ability to migrate the input version to the current spec, and downgrade the output to the
-desired sepc. It supports custom error messages via callbacks, and extra logging via callback
-as well.
+desired spec. It supports callbacks to provide custom error messages and extra logging.
 
 Metrics are implemented via telemetry.
 
@@ -48,14 +47,14 @@ The following configuration options are supported:
 * `:spec_var_placement` the location of the spec var. Options are `:query, :path, :header`  Default  `:header`
 * `:migration_callback` Module to be passed in that will be called when the spec is attempted to migrate Default `nil`
 * `:error_callback` Module to be passed in that will be called when there is an error in the input or output, Default: `nil`
-* `:custom_error_callback` Module to be passed in that will provide enduser with a custom error message, Default: `nil`
+* `:custom_error_callback` Module to be passed in that will provide end-user with a custom error message, Default: `nil`
 * `:all_paths_required` The path passed into the plug must match one of its rules if true, Default: `:true`
 * `:explain_error` provide the reason validation failed, Default: `true`
 * `:validate_params` validate input params, header, path, query, Default: `true`
 * `:validate_body` validate input body from user, Default: `true`
 * `:validate_response` validate output response to the user, Default: `true`
-* `:allow_invalid_input` allow input to pass even if it fails validation, Default: `false`
-* `:allow_invalid_output` allow output to pass even if it fails validation, Default: `false`
+* `:allow_invalid_input` allow input to pass even if invalid, Default: `false`
+* `:allow_invalid_output` allow output to pass even if invalid, Default: `false`
 * `:migrate_input` migrate input from current spec to latest input spec, Default: `true`
 * `:migrate_output` migrate output from current spec to client requested spec, Default: `true`
 
